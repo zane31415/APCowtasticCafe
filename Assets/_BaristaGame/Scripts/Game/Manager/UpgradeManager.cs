@@ -88,6 +88,12 @@ public class UpgradeManager : MonoBehaviour
         }
     }
 
+    public void SetTooltipText(string text)
+    {
+        // Assuming TooltipTrigger has a reference here
+        tooltipTrigger.SetTextHeader(text);
+    }
+
     public void BuyUpgrade(Button button)
     {
         if (RandomizerManager.Instance != null) RandomizerManager.Instance.AddRecentEvent("Buy Upgrade: " + button.name);
