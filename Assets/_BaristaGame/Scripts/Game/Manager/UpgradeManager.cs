@@ -1,5 +1,8 @@
+using System.Collections.Generic;
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.Localization.Components; // Required for LocalizeStringEvent
 
 public class UpgradeManager : MonoBehaviour
 {
@@ -12,31 +15,33 @@ public class UpgradeManager : MonoBehaviour
     [ReadOnly]
     public bool HasInitialUpgrade = false;
 
+    // Constants for new shop logic
+    public const int FLOW_UP_COST = 50;
+    public const int FLOW_DOWN_COST = 50;
+    public const int SHOP_LOCATION_COST = 300;
+
     [Space(5)]
-    //public float UpgradeProductionCost = 10;
+    public List<Upgrade> upgrades;
 
-
-    //public List<Upgrade> upgrades;
     [Header("Debug Only")]
-#if UNITY_EDITOR
     [ReadOnly]
     public float AvailableMoney = 0;
-#endif
     public static UpgradeManager Instance;
 
     private BaseGameMode gamemode;
-
-
 
     public void Awake()
     {
         Instance = this;
 
-        //Not working
-        //for (int i = 0; i < upgrades.Count; i++)
-        //{
-        //    upgrades[i].button.onClick.AddListener(delegate { BuyUpgrade(upgrades[i].button); });
-        //}
+        for (int i = 0; i < upgrades.Count; i++)
+        {
+            if (upgrades[i].button != null)
+            {
+                int index = i;
+                upgrades[i].button.onClick.AddListener(delegate { BuyUpgrade(upgrades[index].button); });
+            }
+        }
 
         UpgradePanel.SetActive(UpgardePanelVisibility);
     }
@@ -52,16 +57,13 @@ public class UpgradeManager : MonoBehaviour
     {
         if (UpgardePanelVisibility == true)
         {
-#if UNITY_EDITOR
             AvailableMoney = gamemode.Money;
-#endif
             UpdateButtonsVisuals();
         }
     }
 
     public void TogglePanelActive()
     {
-        //Debug.Log("Toggle Upgrade Visibility");
         UpgardePanelVisibility = !UpgardePanelVisibility;
         if (HasInitialUpgrade == true)
         {
@@ -71,7 +73,6 @@ public class UpgradeManager : MonoBehaviour
         {
             InitialUpgradePanel.SetActive(UpgardePanelVisibility);
         }
-
     }
 
     public void SetPanelActive(bool state)
@@ -89,22 +90,25 @@ public class UpgradeManager : MonoBehaviour
 
     public void BuyUpgrade(Button button)
     {
-        //for (int i = 0; i < upgrades.Count; i++)
-        //{
-        //    if (upgrades[i].button == button)
-        //    {
-        //        BaseGameMode.instance.BuyUpgrade(
-        //            Mathf.RoundToInt(upgrades[i].Costs * (upgrades[i].CostsModifer * (upgrades[i].UpgradedTimes + 1))),
-        //            upgrades[i].Happyness,
-        //            upgrades[i].MaxBust,
-        //            upgrades[i].Production
-        //            );
+        if (RandomizerManager.Instance != null) RandomizerManager.Instance.AddRecentEvent("Buy Upgrade: " + button.name);
 
-        //        upgrades[i].UpgradedTimes++;
+        int index = -1;
+        for (int i = 0; i < upgrades.Count; i++)
+        {
+            if (upgrades[i].button == button)
+            {
+                index = i;
+                break;
+            }
+        }
 
-        //        break;
-        //    }
-        //}
+        if (index == -1) return;
+
+        if (index == -1) return;
+
+        // Logic moved to ButtonUpgrade.cs
+        // This method is likely not even called if the buttons are wired to ButtonUpgrade.OnClick explicitly.
+
         UpdateButtonsVisuals();
     }
 
@@ -114,7 +118,10 @@ public class UpgradeManager : MonoBehaviour
     /// </summary>
     public void BuyInitialUpgarde()
     {
-        Debug.Log("Buy Upgrade: Initial");
+        if (RandomizerManager.Instance != null) RandomizerManager.Instance.AddRecentEvent("Buy Upgrade: Initial");
+
+        // Removed randomizer check from initial cookie as per user request
+        
         if (gamemode == null)
         {
             gamemode = BaseGameMode.instance;
@@ -129,32 +136,39 @@ public class UpgradeManager : MonoBehaviour
         UpdateButtonsVisuals();
     }
 
+    public void BuyShopSlot(int slotIndex)
+    {
+        if (RandomizerManager.Instance != null)
+        {
+            RandomizerManager.Instance.AddRecentEvent($"UpgradeManager: BuyShopSlot. Slot Index: {slotIndex}");
+            RandomizerManager.Instance.AddRecentEvent($"Randomizer will handle shop slot: {slotIndex}");
+            RandomizerManager.Instance.HandleLocation($"loc_shop_slot_{slotIndex}");
+        }
+    }
+
     void UpdateButtonsVisuals()
     {
-        //for (int i = 0; i < upgrades.Count; i++)
-        //{
-        //    int upgradeCosts = Mathf.RoundToInt(upgrades[i].Costs * (upgrades[i].CostsModifer * (upgrades[i].UpgradedTimes +1 )));
-        //    upgrades[i].PriceText.text = upgradeCosts + " " + Statics.CurrencySymbol;
-
-        //    if (AvailableMoney < upgradeCosts)
-        //    {
-        //        upgrades[i].button.interactable = false;
-        //    }
-        //}
-    } 
+        if (RandomizerManager.Instance == null)
+        {
+            return;
+        }
+        
+        // Visual updates are now handled by individual ButtonUpgrade components.
+        // This method is kept to satisfy potential callers but does nothing.
+    }
 }
 
-//[System.Serializable]
-//public class Upgrade
-//{
-//    public Button button;
-//    public TextMeshProUGUI PriceText;
-//    public int Costs = 10;
-//    public float CostsModifer = 2;
-//    public int UpgradedTimes = 1;
-//    //public int MaxUpgrades = 10;
+[System.Serializable]
+public class Upgrade
+{
+    public Button button;
+    public TextMeshProUGUI PriceText;
+    public int Costs = 10;
+    public float CostsModifer = 2;
+    public int UpgradedTimes = 1;
+    //public int MaxUpgrades = 10;
 
-//    public int Happyness = 0;
-//    public int MaxBust = 0;
-//    public int Production = 0;
-//}
+    public int Happyness = 0;
+    public int MaxBust = 0;
+    public int Production = 0;
+}
