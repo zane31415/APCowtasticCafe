@@ -26,6 +26,9 @@ public class ButtonUpgrade : MonoBehaviour
     [Tooltip("This tells how many times/how strong this upgarde get Applied, if you put -1 in the value it will substract it")]
     public int UpgradeTimes = 1;
 
+    [Tooltip("For ShopLocation upgrades, which slot index in the queue does this button represent?")]
+    public int ShopSlotIndex = 0;
+
     public bool DoSupriseGrowthAnimation = false;
 
     private UpgradeManager manager;
@@ -60,6 +63,7 @@ public class ButtonUpgrade : MonoBehaviour
         {
             buttonUpgrades = new Dictionary<KeyBindingManager.BindableActions, ButtonUpgrade> ();
         }
+        RandomizerManager.Instance.AddRecentEvent($"Button Title: {TypeOfUpgrade}");
         switch(TypeOfUpgrade)
         {
             case UpgradeType.Production:
@@ -186,6 +190,7 @@ public class ButtonUpgrade : MonoBehaviour
 
     private void DoUpgrade()
     {
+        RandomizerManager.Instance.AddRecentEvent($"Button Upgrade: {TypeOfUpgrade}");
         CalcCurrentCost();
 
         if (MaxUpgrades > 0 && UpgradedTimes >= MaxUpgrades)
@@ -224,6 +229,16 @@ public class ButtonUpgrade : MonoBehaviour
             case UpgradeType.TolleranceBeeingFull:
                 gamemode.BuyTolerance(UpgradedTimes, TolleranceIncreasePercentage);
                 break;
+            case UpgradeType.ShopLocation:
+                if (RandomizerManager.Instance != null)
+                {
+                    var availableLocs = RandomizerManager.Instance.GetNextShopLocations(ShopSlotIndex + 1);
+                    if (ShopSlotIndex < availableLocs.Count)
+                    {
+                        RandomizerManager.Instance.BuyShopLocation(availableLocs[ShopSlotIndex]);
+                    }
+                }
+                break;
             default:
                 break;
         }
@@ -244,6 +259,7 @@ public class ButtonUpgrade : MonoBehaviour
         Happyness = 3,
         MilkFullness = 4,
         TolleranceBeeingFull = 5,
+        ShopLocation = 6,
     }
 }
 

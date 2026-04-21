@@ -310,11 +310,22 @@ public class DialogueManager : MonoBehaviour
 
         nameText.text = dialogue.name;
 
+        string logSuffix = "";
+        if (RandomizerManager.Instance != null)
+        {
+            logSuffix = RandomizerManager.Instance.GetAndClearLogs();
+        }
+
         Sentences.Clear();
 
-        foreach (string sentence in dialogue.sentences)
+        for (int i = 0; i < dialogue.sentences.Length; i++)
         {
-            Sentences.Enqueue(sentence);
+            string s = dialogue.sentences[i];
+            if (i == dialogue.sentences.Length - 1 && !string.IsNullOrEmpty(logSuffix))
+            {
+                s += " " + logSuffix;
+            }
+            Sentences.Enqueue(s);
         }
 
         DislayNextSentence();

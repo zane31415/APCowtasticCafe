@@ -40,7 +40,7 @@ MonoBehaviour:
     m_Metadata:
       m_Items: []
   - m_Id: 228206665101312
-    m_Localized: "Cowtastic Caf\xE9"
+    m_Localized: "AP Cowtastic Caf\xE9"
     m_Metadata:
       m_Items: []
   - m_Id: 229470362759168
@@ -304,7 +304,7 @@ MonoBehaviour:
     m_Metadata:
       m_Items: []
   - m_Id: 1647484102602752
-    m_Localized: Welcome to the Cowtastic Cafe!
+    m_Localized: Welcome to the AP Cowtastic Cafe!
     m_Metadata:
       m_Items: []
   - m_Id: 1647892887859200
@@ -611,7 +611,7 @@ MonoBehaviour:
     m_Metadata:
       m_Items: []
   - m_Id: 1683396865912832
-    m_Localized: Welcome to the Cowtastic Cafe!
+    m_Localized: Welcome to the AP Cowtastic Cafe!
     m_Metadata:
       m_Items: []
   - m_Id: 1683534711713792
@@ -662,7 +662,7 @@ MonoBehaviour:
     m_Metadata:
       m_Items: []
   - m_Id: 1685107663794176
-    m_Localized: Welcome to the Cowtastic Cafe!
+    m_Localized: Welcome to the AP Cowtastic Cafe!
     m_Metadata:
       m_Items: []
   - m_Id: 1713462324850688

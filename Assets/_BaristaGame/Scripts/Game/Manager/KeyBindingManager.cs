@@ -28,6 +28,7 @@ public class KeyBindingManager : MonoBehaviour
 
         productionUpgrade, sizeUpgrade, happinessPurchase,
         productionDowngrade, milkNowUpgrade, toleranceUpgrade,
+        shopLocation,
 
         initialUpgrade
     }
@@ -136,6 +137,8 @@ public class KeyBindingManager : MonoBehaviour
             case BindableActions.milkNowUpgrade:
                 return true;
             case BindableActions.toleranceUpgrade:
+                return true;
+            case BindableActions.shopLocation:
                 return true;
         }
     }
