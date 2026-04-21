@@ -486,41 +486,28 @@ public class BaseGameMode : MonoBehaviour
     {
         Debug.Log("Buy Upgrade: Production," + value);
 
-        if (UpgradesProductionRate + value <= 0)
-        {
-            UpgradesProductionRate = 0;
-        }
-        else
-        {
-            UpgradesProductionRate = UpgradesProductionRate + value;
-        }
-
+        // Modifying Current Flow (Production Rate)
         if (value > 0)
         {
-            for (int i = 0; i < value; i++)
-            {
-                ProductionRate = ProductionRate * UpgradesProductionRateValue;
-            }
-            //EffectProductionUpgrade?.PlayFeedbacks();
+            ProductionRate += value;
         }
         else
         {
-            for (int i = 0; i < -value; i++)
-            {
-                ProductionRate = ProductionRate / UpgradesProductionRateValue;
-            }
-            //EffectProductionDowngrade?.PlayFeedbacks();
+            ProductionRate += value; // value is negative
         }
 
+        // Clamp between Min and Max
+        if (ProductionRate > MaxProductionRate) ProductionRate = MaxProductionRate;
+        if (ProductionRate < MinProductionRate) ProductionRate = MinProductionRate;
 
-        if (ProductionRate < 0)
+        // Apply Ceiling if positive
+        if (ProductionRate > 0)
+        {
+            ProductionRate = math.ceil(ProductionRate);
+        }
+        else if (ProductionRate < 0)
         {
             ProductionRate = 0;
-        }
-        else
-        {
-            //Adding Ceiling to the value
-            ProductionRate = math.ceil(ProductionRate);
         }
 
         if(value > 0)
