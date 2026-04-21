@@ -1159,17 +1159,17 @@ public class OrderManager : MonoBehaviour
         //            mainOrder.Append("Make sure to get my drink just right.");
         //            break;
         //        case 1:
-        //            mainOrder.Append("I’ll have a number 8, and two number 0s, and a number 8 large, and don’t forget the number 5...");
+        //            mainOrder.Append("Iï¿½ll have a number 8, and two number 0s, and a number 8 large, and donï¿½t forget the number 5...");
         //            break;
         //        case 2:
-        //            mainOrder.Append("What’s the best drink on the menu?  I’ll take that.");
+        //            mainOrder.Append("Whatï¿½s the best drink on the menu?  Iï¿½ll take that.");
         //            break;
         //        case 3:
-        //            mainOrder.Append("I’ll take an everything please.  But remove anything I don’t like.");
+        //            mainOrder.Append("Iï¿½ll take an everything please.  But remove anything I donï¿½t like.");
         //            break;
 
         //        default:
-        //            mainOrder.Append("What’s the best drink on the menu?  I’ll take that.");
+        //            mainOrder.Append("Whatï¿½s the best drink on the menu?  Iï¿½ll take that.");
         //            break;
         //    }
         //}
@@ -1180,7 +1180,7 @@ public class OrderManager : MonoBehaviour
         //    switch (rnd)
         //    {
         //        case 0:
-        //            mainOrder.Append("I’m late for my meeting!");
+        //            mainOrder.Append("Iï¿½m late for my meeting!");
         //            break;
         //        case 1:
         //            mainOrder.Append("Could you hurry up?");
@@ -1416,7 +1416,7 @@ public class OrderManager : MonoBehaviour
                     mainOrder.Append("?");
                     break;
                 case 05:
-                    mainOrder.Append("The tip jar helps fund your progress… right?");
+                    mainOrder.Append("The tip jar helps fund your progressï¿½ right?");
                     break;
                 case 6:
                     mainOrder.Append(Statics.CustomerDialogStartGreetings[Statics.GetRandomRange(0, Statics.CustomerDialogStartGreetings.Length - 1)]);
@@ -1442,7 +1442,7 @@ public class OrderManager : MonoBehaviour
                     mainOrder.Append(" please.");
                     break;
                 case 9:
-                    mainOrder.Append("You’re free range right?");
+                    mainOrder.Append("Youï¿½re free range right?");
                     break;
                 case 10:
                     mainOrder.Append("Am I reading the menu right?");
@@ -1460,20 +1460,20 @@ public class OrderManager : MonoBehaviour
             switch (rnd)
             {
                 case 0:
-                    mainOrder.Append("Wow the ads weren’t lying about you...");
+                    mainOrder.Append("Wow the ads werenï¿½t lying about you...");
                     break;
                 case 1:
                     mainOrder.Append("This place really has Mooters beat!");
                     break;
                 case 2:
-                    mainOrder.Append("Um… erm… ");
+                    mainOrder.Append("Umï¿½ ermï¿½ ");
                     mainOrder.Append(Statics.CustomerDialogStartGreetings[Statics.GetRandomRange(0, Statics.CustomerDialogStartGreetings.Length - 1)]);
                     mainOrder.Append(" One");
                     mainOrder.Append(CustomerDialogGetDrinkType(generatedCusomer));
                     mainOrder.Append(" please?");
                     break;
                 case 3:
-                    mainOrder.Append("Wow… ");
+                    mainOrder.Append("Wowï¿½ ");
                     mainOrder.Append(Statics.CustomerDialogStartGreetings[Statics.GetRandomRange(0, Statics.CustomerDialogStartGreetings.Length - 1)]);
                     mainOrder.Append(" Can I get a");
                     mainOrder.Append(CustomerDialogGetDrinkModifier(generatedCusomer));
@@ -1481,7 +1481,7 @@ public class OrderManager : MonoBehaviour
                     mainOrder.Append(" please?");
                     break;
                 case 4:
-                    mainOrder.Append("Wow the ads weren’t lying about you...");
+                    mainOrder.Append("Wow the ads werenï¿½t lying about you...");
                     break;
                 case 5:
                     mainOrder.Append(Statics.CustomerDialogStartGreetings[Statics.GetRandomRange(0, Statics.CustomerDialogStartGreetings.Length - 1)]);
@@ -1511,20 +1511,20 @@ public class OrderManager : MonoBehaviour
                     mainOrder.Append("This is quite a different type of open bar cafe.");
                     break;
                 case 10:
-                    mainOrder.Append("Isn’t that “No Shirt No Service” sign out front a bit ironic…?");
+                    mainOrder.Append("Isnï¿½t that ï¿½No Shirt No Serviceï¿½ sign out front a bit ironicï¿½?");
                     break;
                 case 11:
-                    mainOrder.Append("You’re definitely bigger than last time. Awesome.");
+                    mainOrder.Append("Youï¿½re definitely bigger than last time. Awesome.");
                     break;
                 case 12:
-                    mainOrder.Append("You charge extra if I DON’T stare??");
+                    mainOrder.Append("You charge extra if I DONï¿½T stare??");
                     break;
                 case 13:
                     mainOrder.Append(CustomerDialogGetDrinkType(generatedCusomer));
-                    mainOrder.Append(" please, maybe with fresh milk…?");
+                    mainOrder.Append(" please, maybe with fresh milkï¿½?");
                     break;
                 case 14:
-                    mainOrder.Append("Did the menu always include “fresh milk”?");
+                    mainOrder.Append("Did the menu always include ï¿½fresh milkï¿½?");
                     break;
                 case 15:
                     mainOrder.Append("Big lady! Good ");
@@ -1549,10 +1549,10 @@ public class OrderManager : MonoBehaviour
                 case 1:
                     mainOrder.Append("H-hi can I get a ");
                     mainOrder.Append(CustomerDialogGetDrinkType(generatedCusomer));
-                    mainOrder.Append(" with breast milk- I mean breast milk!- I mean breast milk…! I mean I mean breast milk sorry breast milk I mean...");
+                    mainOrder.Append(" with breast milk- I mean breast milk!- I mean breast milkï¿½! I mean I mean breast milk sorry breast milk I mean...");
                     break;
                 case 2:
-                    mainOrder.Append("I-I-I-I… drink… thirsty...");
+                    mainOrder.Append("I-I-I-Iï¿½ drinkï¿½ thirsty...");
                     break;
                 case 3:
                     mainOrder.Append(CustomerDialogGetDrinkType(generatedCusomer));
@@ -1570,17 +1570,17 @@ public class OrderManager : MonoBehaviour
                     break;
                 case 6:
                     mainOrder.Append(CustomerDialogGetDrinkType(generatedCusomer));
-                    mainOrder.Append(" with EXTRA fresh milk… please?");
+                    mainOrder.Append(" with EXTRA fresh milkï¿½ please?");
                     break;
                 case 7:
                     mainOrder.Append(Statics.CustomerDialogStartGreetings[Statics.GetRandomRange(0, Statics.CustomerDialogStartGreetings.Length - 1)]);
-                    mainOrder.Append(" Do you sell straight from the tap…?");
+                    mainOrder.Append(" Do you sell straight from the tapï¿½?");
                     break;
                 case 8:
                     mainOrder.Append(Statics.CustomerDialogStartGreetings[Statics.GetRandomRange(0, Statics.CustomerDialogStartGreetings.Length - 1)]);
                     mainOrder.Append(" J-Just some ");
                     mainOrder.Append(CustomerDialogGetDrinkType(generatedCusomer));
-                    mainOrder.Append(" please… (Wow she’s huge...)");
+                    mainOrder.Append(" pleaseï¿½ (Wow sheï¿½s huge...)");
                     break;
                 case 9:
                     mainOrder.Append(Statics.CustomerDialogStartGreetings[Statics.GetRandomRange(0, Statics.CustomerDialogStartGreetings.Length - 1)]);
@@ -1599,7 +1599,7 @@ public class OrderManager : MonoBehaviour
                     mainOrder.Append("...");
                     break;
                 case 10:
-                    mainOrder.Append("This is quite the marketing strategy you’ve got going…!");
+                    mainOrder.Append("This is quite the marketing strategy youï¿½ve got goingï¿½!");
                     break;
                 case 11:
                     mainOrder.Append("Oh baby!");
@@ -1774,7 +1774,7 @@ public class OrderManager : MonoBehaviour
     }
 
     //TODO: work the script out
-    //A random ingredient not included in the drink.  For drinks that have every ingredient, we could maybe use a word like “sawdust” as a joke ingredient customers don’t want.
+    //A random ingredient not included in the drink.  For drinks that have every ingredient, we could maybe use a word like ï¿½sawdustï¿½ as a joke ingredient customers donï¿½t want.
     [BurstCompile]
     private string CustomerDialogGetNotIngreedient(Customers generatedCusomer)
     {
@@ -1931,6 +1931,27 @@ public class OrderManager : MonoBehaviour
                 }
 
                 dialogeManager.StartDialogueSuccess(ActiveCustomer);
+
+                // Randomizer Integration
+                if (RandomizerManager.Instance != null && cupController != null)
+                {
+                    if (cupController.Espresso > 0.01f) RandomizerManager.Instance.TrackIngredientServe("Espresso");
+                    if (cupController.Coffee > 0.01f) RandomizerManager.Instance.TrackIngredientServe("Coffee");
+                    if (cupController.Chocolate > 0.01f) RandomizerManager.Instance.TrackIngredientServe("Chocolate");
+                    if (cupController.Tea > 0.01f) RandomizerManager.Instance.TrackIngredientServe("Tea");
+                    if (cupController.Milk > 0.01f) RandomizerManager.Instance.TrackIngredientServe("Milk");
+                    if (cupController.BreastMilk > 0.01f) RandomizerManager.Instance.TrackIngredientServe("BreastMilk");
+                    if (cupController.Cream > 0.01f) RandomizerManager.Instance.TrackIngredientServe("Cream");
+                    if (cupController.Sugar > 0.01f) RandomizerManager.Instance.TrackIngredientServe("Sugar");
+
+                    if (cupController.Ice) RandomizerManager.Instance.TrackIngredientServe("Ice");
+                    if (cupController.Boba) RandomizerManager.Instance.TrackIngredientServe("Boba");
+                    if (cupController.WhippedCream) RandomizerManager.Instance.TrackIngredientServe("WhipedCream");
+                    if (cupController.CaramelSauce) RandomizerManager.Instance.TrackIngredientServe("CaramelSauce");
+                    if (cupController.ChocolateSauce) RandomizerManager.Instance.TrackIngredientServe("ChocolateSauce");
+                    if (cupController.Sprinkles) RandomizerManager.Instance.TrackIngredientServe("Sprinkles");
+                }
+
                 baristaTalkManager.TryBaristaEventCupFinished();
                 CompletedCups++;
             }

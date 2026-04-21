@@ -50,6 +50,9 @@ public class BaseGameMode : MonoBehaviour
     public bool CanLevelUp = true;
 
     public double ProductionRate = 10;
+    public double MinProductionRate = 5;
+    public double MaxProductionRate = 20;
+
     /// <summary>
     /// max of maxsize will be 100, its corrospending to the current bust size
     /// </summary>
@@ -156,6 +159,12 @@ public class BaseGameMode : MonoBehaviour
 
 
         CalcBust();
+
+        if (RandomizerManager.Instance == null)
+        {
+            GameObject randomizerGO = new GameObject("RandomizerManager");
+            randomizerGO.AddComponent<RandomizerManager>();
+        }
     }
 
     // Start is called before the first frame update
