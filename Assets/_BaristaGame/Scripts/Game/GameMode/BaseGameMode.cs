@@ -165,6 +165,18 @@ public class BaseGameMode : MonoBehaviour
             GameObject randomizerGO = new GameObject("RandomizerManager");
             randomizerGO.AddComponent<RandomizerManager>();
         }
+
+        if (APNetworking.Instance == null)
+        {
+            GameObject apNetworkingGO = new GameObject("APNetworking");
+            apNetworkingGO.AddComponent<APNetworking>();
+        }
+
+        if (ArchipelagoClient.Instance == null)
+        {
+            GameObject apClientGO = new GameObject("ArchipelagoClient");
+            apClientGO.AddComponent<ArchipelagoClient>();
+        }
     }
 
     // Start is called before the first frame update

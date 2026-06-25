@@ -71,3 +71,9 @@ crashlytics-build.properties
 /[Aa]ssets/[Ss]treamingAssets/aa.meta
 /[Aa]ssets/[Ss]treamingAssets/aa/*
 .aider*
+
+# Build output
+Output/
+
+# Generated apworld bundle (regenerate from Cowtastic/cowtastic_cafe/)
+*.apworld

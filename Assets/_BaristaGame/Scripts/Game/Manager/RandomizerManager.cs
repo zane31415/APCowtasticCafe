@@ -10,9 +10,12 @@ public class RandomizerManager : MonoBehaviour
     public List<string> CheckedLocations = new List<string>();
 
     private BaseGameMode _gameMode;
-    private List<string> _recentEvents = new List<string>();
-    private List<string> _itemPool = new List<string>();
-    private List<string> _dialogueLogs = new List<string>();
+    private ArchipelagoClient _archipelagoClient;
+    private List<string> _recentEvents  = new List<string>();
+    private List<string> _dialogueLogs  = new List<string>();
+    private List<string> _pendingItems  = new List<string>();  // items received before game scene loaded
+
+    private bool _gameReady = false;
 
     private bool _cheatsEnabled = false;
 
@@ -24,13 +27,17 @@ public class RandomizerManager : MonoBehaviour
     public List<string> ShopLocationQueue = new List<string>();
     public int MaxShopLocations = 20;
 
+    // Shop pricing (escalating). Each purchase costs Base * Multiplier^(purchases so far).
+    public float ShopBaseCost = 300f;
+    public float ShopCostMultiplier = 1.5f;
+    private int _shopPurchaseCount = 0;
+
     private void Awake()
     {
         if (Instance == null)
         {
             Instance = this;
             DontDestroyOnLoad(gameObject);
-            InitializeItemPool();
             InitializeShopQueue();
         }
         else
@@ -41,15 +48,71 @@ public class RandomizerManager : MonoBehaviour
 
     private void Start()
     {
-        _gameMode = BaseGameMode.instance;
+        _archipelagoClient = ArchipelagoClient.Instance;
     }
 
     private void Update()
     {
         if (Input.GetKeyDown(KeyCode.M))
-        {
             AddCheatMoney(1000);
+
+        if (!_gameReady)
+            TryActivateGame();
+    }
+
+    /// <summary>
+    /// Called every frame until BaseGameMode is available, then flushes any
+    /// items that arrived before the game scene finished loading.
+    /// </summary>
+    private void TryActivateGame()
+    {
+        if (BaseGameMode.instance == null) return;
+
+        _gameMode  = BaseGameMode.instance;
+        _gameReady = true;
+
+        AutoBuySecretCandy();
+        ConvertShopButtons();
+
+        foreach (string item in _pendingItems)
+            ApplyItem(item);
+        _pendingItems.Clear();
+    }
+
+    /// <summary>The "secret candy" (initial upgrade) now starts purchased for free.</summary>
+    private void AutoBuySecretCandy()
+    {
+        if (UpgradeManager.Instance != null && !UpgradeManager.Instance.HasInitialUpgrade)
+        {
+            UpgradeManager.Instance.BuyInitialUpgarde();
+            AddRecentEvent("Auto-bought Secret Candy");
         }
+    }
+
+    /// <summary>
+    /// Repurposes the six barista-control upgrade buttons into AP shop-location
+    /// buttons (slot indices 0-5 into the shop queue). Done at runtime so no
+    /// scene/prefab editing is needed.
+    /// </summary>
+    private void ConvertShopButtons()
+    {
+        var buttons = FindObjectsOfType<ButtonUpgrade>(true);
+
+        // Skip the InitialUpgrade ("secret candy") button; convert the rest.
+        // Order by name so slot assignment is deterministic across runs.
+        var shopButtons = new List<ButtonUpgrade>();
+        foreach (var b in buttons)
+            if (b.TypeOfUpgrade != ButtonUpgrade.UpgradeType.InitialUpgarde)
+                shopButtons.Add(b);
+        shopButtons.Sort((a, b) => string.CompareOrdinal(a.name, b.name));
+
+        for (int i = 0; i < shopButtons.Count; i++)
+        {
+            shopButtons[i].TypeOfUpgrade = ButtonUpgrade.UpgradeType.ShopLocation;
+            shopButtons[i].ShopSlotIndex = i;
+            shopButtons[i].MaxUpgrades   = 0; // unlimited; shop branch governs availability
+        }
+        AddRecentEvent($"Converted {shopButtons.Count} shop buttons");
     }
 
     public void AddCheatMoney(float amount)
@@ -72,87 +135,63 @@ public class RandomizerManager : MonoBehaviour
         if (cupCheat != null) cupCheat.gameObject.SetActive(state);
     }
 
-    private void InitializeItemPool()
+    public void HandleLocation(string locationName)
     {
-        // 11 Ingredients (Fillings + Toppings)
-        string[] ingredients = { "Espresso", "Coffee", "Chocolate", "Tea", "Milk", "BreastMilk", "Cream", "Sugar", "Ice", "Boba", "Sprinkles" };
-        foreach (var ing in ingredients) _itemPool.Add("Ingredient_" + ing);
+        if (CheckedLocations.Contains(locationName)) return;
 
-        // 20 Stretchy Candy
-        for (int i = 0; i < 20; i++) _itemPool.Add("StretchyCandy");
-
-        // 5 Fullness Tolerance
-        for (int i = 0; i < 5; i++) _itemPool.Add("FullnessTolerance");
-
-        // 5 Happiness Upgrade
-        for (int i = 0; i < 5; i++) _itemPool.Add("HappinessUpgrade");
-
-        // 5 Max Flow Upgrade
-        for (int i = 0; i < 5; i++) _itemPool.Add("MaxFlowUpgrade");
-        
-        // 5 Min Flow Upgrade
-        for (int i = 0; i < 5; i++) _itemPool.Add("MinFlowUpgrade");
-
-        // Fillers
-        for (int i = 0; i < 10; i++) _itemPool.Add("Filler");
-    }
-
-    public void HandleLocation(string locationId)
-    {
-        if (CheckedLocations.Contains(locationId)) return;
-
-        CheckedLocations.Add(locationId);
-        string logMsg = $"[Location] {locationId}";
+        CheckedLocations.Add(locationName);
+        string logMsg = $"[Location] {locationName}";
         Debug.Log(logMsg);
         AddRecentEvent(logMsg);
 
-        // Mock AP: Trigger an item grant when a location is checked
-        if (_itemPool.Count > 0)
-        {
-            int index = Random.Range(0, _itemPool.Count);
-            string itemId = _itemPool[index];
-            _itemPool.RemoveAt(index);
-            Log($"Received {itemId} from {locationId}");
-            HandleItem(itemId);
-        }
+        _archipelagoClient?.CheckLocationByName(locationName);
     }
 
     public void HandleItem(string itemId)
     {
-        string logMsg = $"[Item Received] {itemId}";
-        Debug.Log(logMsg);
-        AddRecentEvent(logMsg);
+        Debug.Log($"[Item Received] {itemId}");
+        AddRecentEvent($"[Item] {itemId}");
 
-        if (itemId.StartsWith("Ingredient_"))
+        if (!_gameReady)
         {
-            string ingredientName = itemId.Replace("Ingredient_", "");
+            _pendingItems.Add(itemId);
+            return;
+        }
+
+        ApplyItem(itemId);
+    }
+
+    private void ApplyItem(string itemId)
+    {
+        if (itemId.StartsWith("Ingredient: "))
+        {
+            string ingredientName = itemId.Substring("Ingredient: ".Length);
             UnlockIngredient(ingredientName);
         }
-        else if (itemId == "StretchyCandy")
+        else if (itemId == "Stretchy Candy")
         {
-            // Consistent with ButtonUpgrade default UpgradeTimes
             _gameMode.BuyMaxSize(1);
         }
-        else if (itemId == "FullnessTolerance")
+        else if (itemId == "Fullness Tolerance")
         {
             _gameMode.BuyTolerance(_gameMode.UpgradesFullTolerance + 1, _gameMode.BustHappinessDecreaseTolerance);
         }
-        else if (itemId == "HappinessUpgrade")
+        else if (itemId == "Happiness Upgrade")
         {
             _gameMode.BuyHappyness(1);
         }
-        else if (itemId == "MaxFlowUpgrade")
+        else if (itemId == "Max Flow Upgrade")
         {
             _gameMode.MaxProductionRate += 5;
         }
-        else if (itemId == "MinFlowUpgrade")
+        else if (itemId == "Min Flow Upgrade")
         {
             _gameMode.MinProductionRate -= 5;
             if (_gameMode.MinProductionRate < 0) _gameMode.MinProductionRate = 0;
         }
-        else if (itemId == "Filler")
+        else if (itemId == "Decoration" || itemId == "Victory")
         {
-            // Do nothing
+            // Nothing to do for cosmetic fillers or the goal item.
         }
     }
 
@@ -207,17 +246,32 @@ public class RandomizerManager : MonoBehaviour
         if (string.IsNullOrEmpty(ingredientName)) return;
 
         if (!IngredientServeCounts.ContainsKey(ingredientName))
-        {
             IngredientServeCounts[ingredientName] = 0;
-        }
 
         IngredientServeCounts[ingredientName]++;
         int count = IngredientServeCounts[ingredientName];
 
-        if (count % DrinksPerCheck == 0 && (count / DrinksPerCheck) <= NumberOfChecks)
+        if (count % DrinksPerCheck == 0)
         {
-            HandleLocation($"loc_serve_{count}_{ingredientName.ToLower()}");
+            int checkNumber = count / DrinksPerCheck;
+            if (checkNumber <= NumberOfChecks)
+            {
+                // Location name must match the apworld's location_name() format.
+                HandleLocation($"Serve {ingredientName} #{checkNumber}");
+            }
         }
+    }
+
+    /// <summary>
+    /// Called by ArchipelagoClient when slot data arrives after a successful connection.
+    /// </summary>
+    public void ApplySlotData(int drinksPerCheck, int checksPerIngredient, int shopLocations)
+    {
+        DrinksPerCheck   = drinksPerCheck;
+        NumberOfChecks   = checksPerIngredient;
+        MaxShopLocations = shopLocations;
+        InitializeShopQueue();
+        Debug.Log($"[AP] Slot data applied: {drinksPerCheck} drinks/check, {checksPerIngredient} checks/ingredient, {shopLocations} shop locations");
     }
 
     private void InitializeShopQueue()
@@ -225,7 +279,8 @@ public class RandomizerManager : MonoBehaviour
         ShopLocationQueue.Clear();
         for (int i = 1; i <= MaxShopLocations; i++)
         {
-            ShopLocationQueue.Add($"loc_shop_{i}");
+            // Name must match the apworld's shop_location_name() format.
+            ShopLocationQueue.Add($"Shop Slot #{i}");
         }
     }
 
@@ -239,11 +294,17 @@ public class RandomizerManager : MonoBehaviour
         return nextLocs;
     }
 
+    public int GetShopQueueCount() => ShopLocationQueue.Count;
+
+    /// <summary>Cost of the next shop purchase (escalates with each purchase made).</summary>
+    public float GetCurrentShopCost() => ShopBaseCost * Mathf.Pow(ShopCostMultiplier, _shopPurchaseCount);
+
     public void BuyShopLocation(string locationId)
     {
         if (ShopLocationQueue.Contains(locationId))
         {
             ShopLocationQueue.Remove(locationId);
+            _shopPurchaseCount++;
             HandleLocation(locationId);
         }
     }
@@ -263,11 +324,15 @@ public class RandomizerManager : MonoBehaviour
     private void OnGUI()
     {
         GUIStyle style = new GUIStyle();
-        style.fontSize = 20;
+        style.fontSize = 16;
         style.normal.textColor = Color.yellow;
 
-        GUILayout.BeginArea(new Rect(10, 10, 400, 500));
-        GUI.Box(new Rect(0, 0, 400, 500), "RANDOMIZER DEBUG");
+        GUIStyle status = new GUIStyle();
+        status.fontSize = 15;
+        status.normal.textColor = Color.cyan;
+
+        GUILayout.BeginArea(new Rect(10, 10, 440, 600));
+        GUI.Box(new Rect(0, 0, 440, 600), "RANDOMIZER DEBUG");
         GUILayout.Space(30);
 
         if (GUILayout.Button("Cheat: +1000 Money"))
@@ -281,7 +346,26 @@ public class RandomizerManager : MonoBehaviour
             ToggleCheatScripts(newCheats);
         }
 
-        GUILayout.Space(20);
+        // --- Live connection / sync status ---
+        GUILayout.Space(10);
+        var ap = _archipelagoClient != null ? _archipelagoClient : ArchipelagoClient.Instance;
+        if (ap != null)
+        {
+            GUILayout.Label($"AP Connected: {ap.IsConnected}", status);
+            GUILayout.Label($"Raw msgs: {ap.DbgRawMessages}  | Last cmd: {ap.DbgLastCmd}", status);
+            GUILayout.Label($"Items recv: {ap.DbgItemsReceived}  | AP pending: {ap.PendingItemCount}", status);
+            GUILayout.Label($"Server checked: {ap.DbgCheckedFromServer}", status);
+        }
+        else
+        {
+            GUILayout.Label("AP client: NULL", status);
+        }
+
+        GUILayout.Label($"GameReady: {_gameReady}  | GameMode: {(_gameMode != null)}", status);
+        GUILayout.Label($"RM pending items: {_pendingItems.Count}", status);
+        GUILayout.Label($"Locations sent: {CheckedLocations.Count}  | DPC:{DrinksPerCheck} NoC:{NumberOfChecks}", status);
+
+        GUILayout.Space(10);
         foreach (var ev in _recentEvents)
         {
             GUILayout.Label(ev, style);

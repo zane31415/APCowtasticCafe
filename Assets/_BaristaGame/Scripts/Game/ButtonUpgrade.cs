@@ -129,6 +129,12 @@ public class ButtonUpgrade : MonoBehaviour
 
     public void UpdateVisuals()
     {
+        if (TypeOfUpgrade == UpgradeType.ShopLocation)
+        {
+            UpdateShopVisuals();
+            return;
+        }
+
         if (MaxUpgrades > 0 && UpgradedTimes >= MaxUpgrades)
         {
             button.interactable = false;
@@ -164,8 +170,42 @@ public class ButtonUpgrade : MonoBehaviour
         }
     }
 
+    private void UpdateShopVisuals()
+    {
+        if (button == null || gamemode == null)
+        {
+            UpdateReferences();
+        }
+
+        var rm = RandomizerManager.Instance;
+        int available = rm != null ? rm.GetShopQueueCount() : 0;
+
+        // This slot has nothing left to sell — disable and mark sold out.
+        if (rm == null || ShopSlotIndex >= available)
+        {
+            button.interactable = false;
+            if (MoneyText != null) MoneyText.text = Statics.ButtonMaxUpgrades;
+            return;
+        }
+
+        currentCost = rm.GetCurrentShopCost();
+        if (MoneyText != null)
+        {
+            MoneyText.text = currentCost.ToString("0.00") + " " + Statics.CurrencySymbol;
+        }
+        button.interactable = currentCost <= gamemode.Money;
+    }
+
     private void CalcCurrentCost()
     {
+        if (TypeOfUpgrade == UpgradeType.ShopLocation)
+        {
+            currentCost = RandomizerManager.Instance != null
+                ? RandomizerManager.Instance.GetCurrentShopCost()
+                : 0f;
+            return;
+        }
+
         if (UpgradedTimes == 0)
         {
             currentCost = CostInitial;
@@ -192,6 +232,16 @@ public class ButtonUpgrade : MonoBehaviour
     {
         RandomizerManager.Instance.AddRecentEvent($"Button Upgrade: {TypeOfUpgrade}");
         CalcCurrentCost();
+
+        // Shop slots have no upcoming location once the queue is drained.
+        if (TypeOfUpgrade == UpgradeType.ShopLocation)
+        {
+            var rm = RandomizerManager.Instance;
+            if (rm == null || ShopSlotIndex >= rm.GetShopQueueCount())
+            {
+                return; // sold out
+            }
+        }
 
         if (MaxUpgrades > 0 && UpgradedTimes >= MaxUpgrades)
         {
