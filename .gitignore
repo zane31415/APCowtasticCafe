@@ -75,5 +75,8 @@ crashlytics-build.properties
 # Build output
 Output/
 
+# Generated release artifacts (run build_release.ps1 to regenerate)
+release/
+
 # Generated apworld bundle (regenerate from Cowtastic/cowtastic_cafe/)
 *.apworld
