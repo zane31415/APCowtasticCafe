@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text;
 using UnityEngine;
 
 public class ArchipelagoClient : MonoBehaviour
@@ -9,6 +10,7 @@ public class ArchipelagoClient : MonoBehaviour
     public string SlotName  { get; private set; }
     public bool IsConnected     { get; private set; }
     public bool ConnectionFailed { get; private set; }
+    public bool GoalSent         { get; private set; }
 
     // --- Debug counters (surfaced in RandomizerManager's overlay) ---
     public int    DbgRawMessages   { get; private set; }
@@ -26,6 +28,19 @@ public class ArchipelagoClient : MonoBehaviour
 
     private HashSet<long>  _checkedLocations = new HashSet<long>();
     private List<string>   _pendingItems     = new List<string>();  // received before RandomizerManager existed
+
+    // Slot data is cached here because Connected usually arrives on the menu,
+    // before RandomizerManager (a game-scene singleton) exists. We flush it the
+    // moment the manager appears, so settings aren't silently lost.
+    private bool         _slotDataPending;
+    private int          _sdDrinks, _sdChecks, _sdShop;
+    private List<string> _sdLocNames = new List<string>();
+    private List<string> _sdLocItems = new List<string>();
+    private List<long>   _sdLocLocal = new List<long>();
+
+    // How many received items we've already applied, so a reconnect resync
+    // doesn't re-apply (and double-count) items or re-announce them.
+    private int _receivedCount = 0;
 
     // ---------------------------------------------------------------------------
     // Item ID → name  (mirrors items.py ITEM_NAME_TO_ID)
@@ -48,6 +63,41 @@ public class ArchipelagoClient : MonoBehaviour
         ItemIdToName[id++] = "Max Flow Upgrade";
         ItemIdToName[id++] = "Min Flow Upgrade";
         ItemIdToName[id++] = "Decoration";
+
+        // Cosmetics — MUST stay in the same order as items.py COSMETICS.
+        foreach (var cos in CosmeticOrder)
+            ItemIdToName[id++] = cos;
+    }
+
+    // Cosmetic display name -> in-game PermanentUnlock UnlockId.
+    // Order of this array must match items.py COSMETICS exactly.
+    public static readonly (string Name, string UnlockId)[] Cosmetics =
+    {
+        ("Barista Bikini",  "Bikini"),
+        ("Top Only",        "TopOnly"),
+        ("No Apron",        "NoneApron"),
+        ("Poofy Pants",     "PoofyPantsPants"),
+        ("Underwear",       "UnderWearPants"),
+        ("No Pants",        "NonePants"),
+        ("Blue Milk",       "Blue"),
+        ("Chocolate Milk",  "Chocolate"),
+        ("Creamy Milk",     "Creamy"),
+        ("Green Milk",      "Green"),
+        ("Honey Milk",      "Honey"),
+        ("Rainbow Milk",    "Rainbow"),
+        ("Raspberry Milk",  "Rspberry"),   // note: game data misspells this id
+        ("Space Milk",      "Space"),
+        ("Strawberry Milk", "Strawberry"),
+        ("Thick Milk",      "Thick"),
+        ("Void Milk",       "Void"),
+    };
+
+    private static readonly string[] CosmeticOrder = BuildCosmeticOrder();
+    private static string[] BuildCosmeticOrder()
+    {
+        var arr = new string[Cosmetics.Length];
+        for (int i = 0; i < Cosmetics.Length; i++) arr[i] = Cosmetics[i].Name;
+        return arr;
     }
 
     // ---------------------------------------------------------------------------
@@ -112,6 +162,13 @@ public class ArchipelagoClient : MonoBehaviour
         if (_apNetworking != null && _apNetworking.IsConnected())
             ProcessIncomingMessages();
 
+        // Flush slot data first so settings are applied before any queued items.
+        if (_slotDataPending && Randomizer != null)
+        {
+            Randomizer.ApplySlotData(_sdDrinks, _sdChecks, _sdShop, _sdLocNames, _sdLocItems, _sdLocLocal);
+            _slotDataPending = false;
+        }
+
         // Flush items that arrived before RandomizerManager was ready.
         if (_pendingItems.Count > 0 && Randomizer != null)
         {
@@ -135,6 +192,7 @@ public class ArchipelagoClient : MonoBehaviour
 
         SlotName        = slotName;
         ConnectionFailed = false;
+        GoalSent         = false;
 
         if (_apNetworking == null)
         {
@@ -257,10 +315,16 @@ public class ArchipelagoClient : MonoBehaviour
         IsConnected = true;
         Debug.Log("[AP] Server confirmed connection");
 
-        int drinksPerCheck      = ExtractInt(msg, "drinks_per_check",      3);
-        int checksPerIngredient = ExtractInt(msg, "checks_per_ingredient",  3);
-        int shopLocations       = ExtractInt(msg, "shop_locations",         20);
-        Randomizer?.ApplySlotData(drinksPerCheck, checksPerIngredient, shopLocations);
+        // Cache slot data; it's flushed to RandomizerManager in Update() once
+        // that game-scene singleton exists (it usually doesn't yet, on the menu).
+        _sdDrinks   = ExtractInt(msg, "drinks_per_check",      3);
+        _sdChecks   = ExtractInt(msg, "checks_per_ingredient", 3);
+        _sdShop     = ExtractInt(msg, "shop_locations",        10);
+        _sdLocNames = ExtractStringArray(msg, "loc_names");
+        _sdLocItems = ExtractStringArray(msg, "loc_items");
+        _sdLocLocal = ExtractLongArray(msg, "loc_local");
+        _slotDataPending = true;
+        Debug.Log($"[AP] Slot data cached: drinks={_sdDrinks} checks={_sdChecks} shop={_sdShop} locs={_sdLocNames.Count}");
 
         // Seed our local sent-set with locations the server already has,
         // so we don't re-send them this session.
@@ -278,32 +342,42 @@ public class ArchipelagoClient : MonoBehaviour
 
     private void HandleReceivedItems(string msg)
     {
-        // Packet: [{"cmd":"ReceivedItems","index":N,"items":[{"item":ID,"location":L,"player":P,"flags":F},...]}]
-        // Extract every "item": number from the items array.
+        // Packet: [{"cmd":"ReceivedItems","index":N,"items":[{"item":ID,...},...]}]
+        // "index" is the position of the first item in this batch. On connect (or
+        // reconnect) the server resends the full inventory with index 0; we must
+        // only apply/announce items past _receivedCount so we don't double-count.
+        int startIndex = ExtractInt(msg, "index", 0);
+
+        // Collect item IDs in order.
+        var ids = new List<long>();
         int searchFrom = 0;
         const string itemKey = "\"item\":";
         while (true)
         {
             int keyIdx = msg.IndexOf(itemKey, searchFrom, StringComparison.Ordinal);
             if (keyIdx < 0) break;
-
             int valStart = keyIdx + itemKey.Length;
             while (valStart < msg.Length && msg[valStart] == ' ') valStart++;
             int valEnd = valStart;
             while (valEnd < msg.Length && (char.IsDigit(msg[valEnd]) || msg[valEnd] == '-')) valEnd++;
-
             if (long.TryParse(msg.Substring(valStart, valEnd - valStart), out long itemId))
-            {
-                string itemName = ItemIdToName.TryGetValue(itemId, out string n) ? n : $"Unknown({itemId})";
-                DbgItemsReceived++;
-                Debug.Log($"[AP] Received item: {itemName} ({itemId})");
-                if (Randomizer != null)
-                    Randomizer.HandleItem(itemName);
-                else
-                    _pendingItems.Add(itemName);
-            }
-
+                ids.Add(itemId);
             searchFrom = valEnd;
+        }
+
+        for (int i = 0; i < ids.Count; i++)
+        {
+            int globalIndex = startIndex + i;
+            if (globalIndex < _receivedCount) continue;  // already applied
+            _receivedCount = globalIndex + 1;
+
+            string itemName = ItemIdToName.TryGetValue(ids[i], out string n) ? n : $"Unknown({ids[i]})";
+            DbgItemsReceived++;
+            Debug.Log($"[AP] Received item: {itemName} ({ids[i]})");
+            if (Randomizer != null)
+                Randomizer.HandleItem(itemName);
+            else
+                _pendingItems.Add(itemName);
         }
     }
 
@@ -328,6 +402,89 @@ public class ArchipelagoClient : MonoBehaviour
                 result.Add(v);
         }
         return result;
+    }
+
+    /// <summary>
+    /// Extracts a JSON string array like "shop_item_names": ["a", "b\"c", "d"].
+    /// Hand-written because item names can come from other games and contain
+    /// commas, quotes, and unicode escapes - the loose IndexOf approach we use
+    /// elsewhere would mangle them.
+    /// </summary>
+    private static List<string> ExtractStringArray(string json, string key)
+    {
+        var result = new List<string>();
+        string search = $"\"{key}\":";
+        int idx = json.IndexOf(search, StringComparison.Ordinal);
+        if (idx < 0) return result;
+
+        int i = json.IndexOf('[', idx);
+        if (i < 0) return result;
+        i++; // past '['
+
+        while (i < json.Length)
+        {
+            // Skip whitespace and commas between elements.
+            while (i < json.Length && (json[i] == ' ' || json[i] == ',' ||
+                                       json[i] == '\n' || json[i] == '\r' || json[i] == '\t')) i++;
+            if (i >= json.Length || json[i] == ']') break;
+            if (json[i] != '"') break; // malformed / unexpected
+
+            i++; // past opening quote
+            var sb = new StringBuilder();
+            while (i < json.Length)
+            {
+                char c = json[i];
+                if (c == '\\' && i + 1 < json.Length)
+                {
+                    char e = json[i + 1];
+                    switch (e)
+                    {
+                        case '"':  sb.Append('"');  i += 2; break;
+                        case '\\': sb.Append('\\'); i += 2; break;
+                        case '/':  sb.Append('/');  i += 2; break;
+                        case 'n':  sb.Append('\n'); i += 2; break;
+                        case 't':  sb.Append('\t'); i += 2; break;
+                        case 'r':  sb.Append('\r'); i += 2; break;
+                        case 'b':  sb.Append('\b'); i += 2; break;
+                        case 'f':  sb.Append('\f'); i += 2; break;
+                        case 'u':
+                            if (i + 5 < json.Length &&
+                                int.TryParse(json.Substring(i + 2, 4),
+                                    System.Globalization.NumberStyles.HexNumber,
+                                    System.Globalization.CultureInfo.InvariantCulture, out int code))
+                            {
+                                sb.Append((char)code);
+                                i += 6;
+                            }
+                            else { sb.Append(e); i += 2; }
+                            break;
+                        default:   sb.Append(e); i += 2; break;
+                    }
+                }
+                else if (c == '"')
+                {
+                    i++; // past closing quote
+                    break;
+                }
+                else
+                {
+                    sb.Append(c);
+                    i++;
+                }
+            }
+            result.Add(sb.ToString());
+        }
+        return result;
+    }
+
+    /// <summary>Tell the server the goal is complete (ClientStatus.CLIENT_GOAL = 30).</summary>
+    public async void SendGoalComplete()
+    {
+        if (GoalSent) return;
+        GoalSent = true;
+        Debug.Log("[AP] Sending goal completion (StatusUpdate 30)");
+        if (_apNetworking != null)
+            await _apNetworking.SendMessageAsync("[{\"cmd\":\"StatusUpdate\",\"status\":30}]");
     }
 
     // ---------------------------------------------------------------------------

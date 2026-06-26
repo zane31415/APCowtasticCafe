@@ -10,14 +10,16 @@ public class RandomizerManager : MonoBehaviour
     public List<string> CheckedLocations = new List<string>();
 
     private BaseGameMode _gameMode;
-    private ArchipelagoClient _archipelagoClient;
-    private List<string> _recentEvents  = new List<string>();
+
+    private ArchipelagoClient _archipelagoClient
+    {
+        get { return ArchipelagoClient.Instance; }
+    }
+
     private List<string> _dialogueLogs  = new List<string>();
     private List<string> _pendingItems  = new List<string>();  // items received before game scene loaded
 
     private bool _gameReady = false;
-
-    private bool _cheatsEnabled = false;
 
     // Configurable Ingredient Milestones
     public int DrinksPerCheck = 3;
@@ -25,12 +27,31 @@ public class RandomizerManager : MonoBehaviour
 
     // Shop Queue
     public List<string> ShopLocationQueue = new List<string>();
-    public int MaxShopLocations = 20;
+    public int MaxShopLocations = 10;
 
-    // Shop pricing (escalating). Each purchase costs Base * Multiplier^(purchases so far).
-    public float ShopBaseCost = 300f;
-    public float ShopCostMultiplier = 1.5f;
-    private int _shopPurchaseCount = 0;
+    // Per-location info from slot data: location name -> (item display, isLocal).
+    private Dictionary<string, LocInfo> _locInfo = new Dictionary<string, LocInfo>();
+    private struct LocInfo { public string Item; public bool Local; }
+
+    // Barista announcement queue, paced so messages don't stomp each other.
+    private Queue<string> _announceQueue = new Queue<string>();
+    private float _nextAnnounceTime = 0f;
+    private const float AnnounceInterval = 4f;
+
+    // Shop pricing is per-slot, not per-purchase: "Shop Slot #N" costs
+    // BasePrice + Step*(N-1), capped at PriceCap. The apworld mirrors this to
+    // gate later slots behind ingredient count ($50 of price = 1 ingredient).
+    public float ShopBasePrice = 50f;
+    public float ShopPriceStep = 25f;
+    public float ShopPriceCap  = 550f;
+
+    // Goal is the in-game "barista overflows" good end (see GameWinManager),
+    // not a candy count. RequiredCandy is just informational for the overlay.
+    public const int RequiredCandy = 19;
+    public int MilkCapacityCount = 0;
+
+    // Cosmetic AP item name -> PermanentUnlock UnlockId, built from slot data.
+    private Dictionary<string, string> _cosmeticToUnlockId = new Dictionary<string, string>();
 
     private void Awake()
     {
@@ -39,6 +60,8 @@ public class RandomizerManager : MonoBehaviour
             Instance = this;
             DontDestroyOnLoad(gameObject);
             InitializeShopQueue();
+            // Ingredients are AP-gated; the player can't buy them with money.
+            FillingTool.PurchasingEnabled = false;
         }
         else
         {
@@ -46,18 +69,31 @@ public class RandomizerManager : MonoBehaviour
         }
     }
 
-    private void Start()
-    {
-        _archipelagoClient = ArchipelagoClient.Instance;
-    }
 
     private void Update()
     {
-        if (Input.GetKeyDown(KeyCode.M))
-            AddCheatMoney(1000);
-
         if (!_gameReady)
             TryActivateGame();
+
+        // Feed queued AP announcements to the barista, paced out.
+        if (_announceQueue.Count > 0 && Time.unscaledTime >= _nextAnnounceTime
+            && BaristaTalkManager.instance != null)
+        {
+            BaristaTalkManager.instance.AnnounceAP(_announceQueue.Dequeue());
+            _nextAnnounceTime = Time.unscaledTime + AnnounceInterval;
+        }
+    }
+
+    private void Announce(string message)
+    {
+        _announceQueue.Enqueue(message);
+    }
+
+    private static string PrettyItemName(string itemId)
+    {
+        return itemId.StartsWith("Ingredient: ")
+            ? itemId.Substring("Ingredient: ".Length)
+            : itemId;
     }
 
     /// <summary>
@@ -73,10 +109,37 @@ public class RandomizerManager : MonoBehaviour
 
         AutoBuySecretCandy();
         ConvertShopButtons();
+        DisableCosmeticShop();
 
         foreach (string item in _pendingItems)
             ApplyItem(item);
         _pendingItems.Clear();
+    }
+
+    /// <summary>
+    /// Cosmetics now come from the multiworld, so make them un-purchasable
+    /// in the customize shop (equivalent to infinite cost), and build the
+    /// AP-item-name -> UnlockId map used when cosmetic items are received.
+    /// </summary>
+    private void DisableCosmeticShop()
+    {
+        _cosmeticToUnlockId.Clear();
+        foreach (var c in ArchipelagoClient.Cosmetics)
+            _cosmeticToUnlockId[c.Name] = c.UnlockId;
+
+        // For the rando, cosmetics start LOCKED (override any saved PlayerPrefs)
+        // and can't be bought — they only come from the multiworld.
+        foreach (var unlock in FindObjectsOfType<PermanentUnlock>(true))
+        {
+            unlock.CanBePurchased = false;
+            unlock.UnlockCosts = float.MaxValue;
+            unlock.Unlock(false);
+        }
+
+        // Reset milk to default so a previously-saved cosmetic milk doesn't carry
+        // over; received milk cosmetics will re-apply it.
+        if (MilkTypeController.instance != null)
+            MilkTypeController.instance.SetMilkByPresetAndSavePreference(0);
     }
 
     /// <summary>The "secret candy" (initial upgrade) now starts purchased for free.</summary>
@@ -108,31 +171,11 @@ public class RandomizerManager : MonoBehaviour
 
         for (int i = 0; i < shopButtons.Count; i++)
         {
-            shopButtons[i].TypeOfUpgrade = ButtonUpgrade.UpgradeType.ShopLocation;
-            shopButtons[i].ShopSlotIndex = i;
-            shopButtons[i].MaxUpgrades   = 0; // unlimited; shop branch governs availability
+            // ConfigureAsShopSlot also disables the title's LocalizeStringEvent
+            // and captures the label TMP so we can populate it ourselves.
+            shopButtons[i].ConfigureAsShopSlot(i);
         }
         AddRecentEvent($"Converted {shopButtons.Count} shop buttons");
-    }
-
-    public void AddCheatMoney(float amount)
-    {
-        if (_gameMode == null) _gameMode = BaseGameMode.instance;
-        if (_gameMode != null)
-        {
-            _gameMode.AddMoney(amount);
-            Log($"Cheat: Added {amount} money");
-        }
-    }
-
-    private void ToggleCheatScripts(bool state)
-    {
-        _cheatsEnabled = state;
-        var mouseCheat = FindObjectOfType<CheatStatsMouse>(true);
-        var cupCheat = FindObjectOfType<CheatStatsCup>(true);
-
-        if (mouseCheat != null) mouseCheat.gameObject.SetActive(state);
-        if (cupCheat != null) cupCheat.gameObject.SetActive(state);
     }
 
     public void HandleLocation(string locationName)
@@ -140,17 +183,23 @@ public class RandomizerManager : MonoBehaviour
         if (CheckedLocations.Contains(locationName)) return;
 
         CheckedLocations.Add(locationName);
-        string logMsg = $"[Location] {locationName}";
-        Debug.Log(logMsg);
-        AddRecentEvent(logMsg);
+        Debug.Log($"[Location] {locationName}");
 
         _archipelagoClient?.CheckLocationByName(locationName);
+
+        // If this check's item belongs to another player, announce it as "sent".
+        // (Local items announce as "unlocked" when we actually receive them.)
+        if (_locInfo.TryGetValue(locationName, out LocInfo info) && !info.Local)
+            Announce($"{info.Item} sent!");
     }
 
     public void HandleItem(string itemId)
     {
         Debug.Log($"[Item Received] {itemId}");
-        AddRecentEvent($"[Item] {itemId}");
+
+        // Tell the player what they just got. (Victory is never transmitted.)
+        if (itemId != "Victory")
+            Announce($"{PrettyItemName(itemId)} unlocked!");
 
         if (!_gameReady)
         {
@@ -171,6 +220,7 @@ public class RandomizerManager : MonoBehaviour
         else if (itemId == "Stretchy Candy")
         {
             _gameMode.BuyMaxSize(1);
+            MilkCapacityCount++;
         }
         else if (itemId == "Fullness Tolerance")
         {
@@ -189,10 +239,69 @@ public class RandomizerManager : MonoBehaviour
             _gameMode.MinProductionRate -= 5;
             if (_gameMode.MinProductionRate < 0) _gameMode.MinProductionRate = 0;
         }
+        else if (_cosmeticToUnlockId.ContainsKey(itemId))
+        {
+            UnlockCosmetic(itemId);
+        }
         else if (itemId == "Decoration" || itemId == "Victory")
         {
-            // Nothing to do for cosmetic fillers or the goal item.
+            // Nothing to do for plain filler or the (never-transmitted) goal item.
         }
+    }
+
+    /// <summary>Unlocks the cosmetic whose AP item name was received.</summary>
+    private void UnlockCosmetic(string itemId)
+    {
+        if (!_cosmeticToUnlockId.TryGetValue(itemId, out string unlockId)) return;
+
+        foreach (var unlock in FindObjectsOfType<PermanentUnlock>(true))
+        {
+            if (unlock.UnlockId == unlockId)
+            {
+                unlock.Unlock(true);
+                ApplyCosmetic(unlockId);  // equip it immediately for the surprise
+                AddRecentEvent($"Unlocked + applied cosmetic: {itemId}");
+                return;
+            }
+        }
+        AddRecentEvent($"Cosmetic '{itemId}' -> id '{unlockId}' not found in scene");
+    }
+
+    // Milk-color cosmetics map to MilkTypeController presets (see SetMilkByPreset).
+    private static readonly Dictionary<string, int> _milkPreset = new Dictionary<string, int>
+    {
+        { "Thick", 1 }, { "Creamy", 2 }, { "Chocolate", 3 }, { "Strawberry", 4 },
+        { "Honey", 5 }, { "Blue", 6 }, { "Green", 7 }, { "Rspberry", 8 },
+        { "Rainbow", 9 }, { "Space", 10 }, { "Void", 11 },
+    };
+
+    /// <summary>Immediately equips a cosmetic so the player sees it right away.</summary>
+    private void ApplyCosmetic(string unlockId)
+    {
+        if (_milkPreset.TryGetValue(unlockId, out int preset))
+        {
+            MilkTypeController.instance?.SetMilkByPresetAndSavePreference(preset);
+            return;
+        }
+
+        var barista = BaristaController.instance;
+        if (barista == null) return;
+        switch (unlockId)
+        {
+            case "Bikini":          barista.SetBaristaTop(2);     break; // bikini top
+            case "TopOnly":         barista.SetBaristaTop(1);     break; // apron, bottom removed
+            case "NoneApron":       barista.SetBaristaTop(-1);    break; // no top
+            case "PoofyPantsPants": barista.SetUnderwearType(2);  break; // poofy pants
+            case "UnderWearPants":  barista.SetUnderwearType(1);  break; // underwear
+            case "NonePants":       barista.SetUnderwearType(-1); break; // no pants
+        }
+    }
+
+    /// <summary>Called by GameWinManager when the barista-overflow good end fires.</summary>
+    public void OnGameWon()
+    {
+        AddRecentEvent("GOAL: barista overflow good end reached!");
+        _archipelagoClient?.SendGoalComplete();
     }
 
     public void Log(string message)
@@ -208,10 +317,11 @@ public class RandomizerManager : MonoBehaviour
         return joined;
     }
 
+    // Kept for external callers (ButtonUpgrade/UpgradeManager). The on-screen
+    // debug overlay is gone; this just logs to the console now.
     public void AddRecentEvent(string msg)
     {
-        _recentEvents.Insert(0, msg);
-        if (_recentEvents.Count > 10) _recentEvents.RemoveAt(10);
+        Debug.Log($"[AP] {msg}");
     }
 
     private void UnlockIngredient(string name)
@@ -265,13 +375,25 @@ public class RandomizerManager : MonoBehaviour
     /// <summary>
     /// Called by ArchipelagoClient when slot data arrives after a successful connection.
     /// </summary>
-    public void ApplySlotData(int drinksPerCheck, int checksPerIngredient, int shopLocations)
+    public void ApplySlotData(int drinksPerCheck, int checksPerIngredient, int shopLocations,
+                              List<string> locNames, List<string> locItems, List<long> locLocal)
     {
         DrinksPerCheck   = drinksPerCheck;
         NumberOfChecks   = checksPerIngredient;
         MaxShopLocations = shopLocations;
+
+        _locInfo.Clear();
+        if (locNames != null && locItems != null)
+        {
+            for (int i = 0; i < locNames.Count && i < locItems.Count; i++)
+            {
+                bool local = locLocal != null && i < locLocal.Count && locLocal[i] != 0;
+                _locInfo[locNames[i]] = new LocInfo { Item = locItems[i], Local = local };
+            }
+        }
+
         InitializeShopQueue();
-        Debug.Log($"[AP] Slot data applied: {drinksPerCheck} drinks/check, {checksPerIngredient} checks/ingredient, {shopLocations} shop locations");
+        Debug.Log($"[AP] Slot data applied: {drinksPerCheck} drinks/check, {checksPerIngredient} checks/ingredient, {shopLocations} shop locations, {_locInfo.Count} location items");
     }
 
     private void InitializeShopQueue()
@@ -296,15 +418,38 @@ public class RandomizerManager : MonoBehaviour
 
     public int GetShopQueueCount() => ShopLocationQueue.Count;
 
-    /// <summary>Cost of the next shop purchase (escalates with each purchase made).</summary>
-    public float GetCurrentShopCost() => ShopBaseCost * Mathf.Pow(ShopCostMultiplier, _shopPurchaseCount);
+    /// <summary>
+    /// What the shop button at the given visible slot index will hand out,
+    /// looked up from the slot-data location->item map.
+    /// </summary>
+    public string GetShopItemDisplayForSlot(int shopSlotIndex)
+    {
+        if (shopSlotIndex < 0 || shopSlotIndex >= ShopLocationQueue.Count) return "";
+        string loc = ShopLocationQueue[shopSlotIndex]; // "Shop Slot #m"
+        if (_locInfo.TryGetValue(loc, out LocInfo info)) return info.Item;
+        return "?";
+    }
+
+    /// <summary>Fixed price of a given "Shop Slot #N" (per-slot, not per-purchase).</summary>
+    public float GetShopSlotPrice(int slotNumber) =>
+        Mathf.Min(ShopBasePrice + ShopPriceStep * (slotNumber - 1), ShopPriceCap);
+
+    /// <summary>Cost shown on the shop button at the given visible queue position.</summary>
+    public float GetShopCostForSlot(int shopSlotIndex)
+    {
+        if (shopSlotIndex < 0 || shopSlotIndex >= ShopLocationQueue.Count) return 0f;
+        string loc = ShopLocationQueue[shopSlotIndex]; // "Shop Slot #m"
+        int hash = loc.LastIndexOf('#');
+        if (hash >= 0 && int.TryParse(loc.Substring(hash + 1), out int m))
+            return GetShopSlotPrice(m);
+        return 0f;
+    }
 
     public void BuyShopLocation(string locationId)
     {
         if (ShopLocationQueue.Contains(locationId))
         {
             ShopLocationQueue.Remove(locationId);
-            _shopPurchaseCount++;
             HandleLocation(locationId);
         }
     }
@@ -321,55 +466,4 @@ public class RandomizerManager : MonoBehaviour
         return _gameMode.ProductionRate > _gameMode.MinProductionRate;
     }
 
-    private void OnGUI()
-    {
-        GUIStyle style = new GUIStyle();
-        style.fontSize = 16;
-        style.normal.textColor = Color.yellow;
-
-        GUIStyle status = new GUIStyle();
-        status.fontSize = 15;
-        status.normal.textColor = Color.cyan;
-
-        GUILayout.BeginArea(new Rect(10, 10, 440, 600));
-        GUI.Box(new Rect(0, 0, 440, 600), "RANDOMIZER DEBUG");
-        GUILayout.Space(30);
-
-        if (GUILayout.Button("Cheat: +1000 Money"))
-        {
-            AddCheatMoney(1000);
-        }
-
-        bool newCheats = GUILayout.Toggle(_cheatsEnabled, "Enable Overlay Cheats");
-        if (newCheats != _cheatsEnabled)
-        {
-            ToggleCheatScripts(newCheats);
-        }
-
-        // --- Live connection / sync status ---
-        GUILayout.Space(10);
-        var ap = _archipelagoClient != null ? _archipelagoClient : ArchipelagoClient.Instance;
-        if (ap != null)
-        {
-            GUILayout.Label($"AP Connected: {ap.IsConnected}", status);
-            GUILayout.Label($"Raw msgs: {ap.DbgRawMessages}  | Last cmd: {ap.DbgLastCmd}", status);
-            GUILayout.Label($"Items recv: {ap.DbgItemsReceived}  | AP pending: {ap.PendingItemCount}", status);
-            GUILayout.Label($"Server checked: {ap.DbgCheckedFromServer}", status);
-        }
-        else
-        {
-            GUILayout.Label("AP client: NULL", status);
-        }
-
-        GUILayout.Label($"GameReady: {_gameReady}  | GameMode: {(_gameMode != null)}", status);
-        GUILayout.Label($"RM pending items: {_pendingItems.Count}", status);
-        GUILayout.Label($"Locations sent: {CheckedLocations.Count}  | DPC:{DrinksPerCheck} NoC:{NumberOfChecks}", status);
-
-        GUILayout.Space(10);
-        foreach (var ev in _recentEvents)
-        {
-            GUILayout.Label(ev, style);
-        }
-        GUILayout.EndArea();
-    }
 }

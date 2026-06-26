@@ -40,6 +40,10 @@ public class FillingTool : MonoBehaviour
     private bool justUnlock = false;
     private UpgradeManager upgradeManager;
 
+    // When false (set by the randomizer), ingredients can't be bought with
+    // money — they're unlocked only via received Archipelago items.
+    public static bool PurchasingEnabled = true;
+
     public static Dictionary<KeyBindingManager.BindableActions, FillingTool> fillingTools;
     public static Dictionary<KeyBindingManager.BindableActions, UnityEngine.UI.Image> fillingToolGlows;
 
@@ -166,6 +170,8 @@ public class FillingTool : MonoBehaviour
     [BurstCompile]
     private void UnlockTool()
     {
+        if (!PurchasingEnabled) return;  // ingredients come from Archipelago only
+
         if (gamemode != null && gamemode.Money >= MoneyToUnlock)
         {
             //gamemode.Money = gamemode.Money - MoneyToUnlock;

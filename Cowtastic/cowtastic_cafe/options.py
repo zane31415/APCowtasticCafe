@@ -29,7 +29,19 @@ class ShopLocations(Range):
     display_name = "Shop Locations"
     range_start = 0
     range_end = 50
-    default = 20
+    default = 10
+
+
+class ExtraCandy(Range):
+    """Additional Stretchy Candy (milk-capacity upgrades) added to the pool
+    beyond the amount required to win. The goal is the in-game 'barista
+    overflows' good end; in Arcade mode 19 candy are required to grow the
+    barista enough to trigger it. Extras are a buffer and let you keep growing
+    past the requirement."""
+    display_name = "Extra Candy"
+    range_start = 0
+    range_end = 30
+    default = 1
 
 
 @dataclass
@@ -37,3 +49,4 @@ class CowtasticOptions(PerGameCommonOptions):
     drinks_per_check: DrinksPerCheck
     checks_per_ingredient: ChecksPerIngredient
     shop_locations: ShopLocations
+    extra_candy: ExtraCandy

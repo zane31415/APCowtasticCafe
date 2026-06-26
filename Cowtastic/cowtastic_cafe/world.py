@@ -41,8 +41,34 @@ class CowtasticWorld(World):
 
     def fill_slot_data(self) -> dict:
         """Export settings the Unity client needs to match location checks."""
+        loc_names, loc_items, loc_local = self._location_item_map()
         return {
             "drinks_per_check":      self.options.drinks_per_check.value,
             "checks_per_ingredient": self.options.checks_per_ingredient.value,
             "shop_locations":        self.options.shop_locations.value,
+            # Parallel arrays describing what each real location will hand out.
+            # The client uses these to label shop buttons and to announce
+            # "X sent!" (remote) / "X unlocked!" (local) via the barista.
+            "loc_names":  loc_names,
+            "loc_items":  loc_items,
+            "loc_local":  loc_local,   # 1 = item is this player's, 0 = remote
         }
+
+    def _location_item_map(self):
+        names, items, local = [], [], []
+        for loc in self.multiworld.get_locations(self.player):
+            if loc.address is None:
+                continue  # skip events (e.g. the Victory location)
+            names.append(loc.name)
+            item = loc.item
+            if item is None:
+                items.append("???")
+                local.append(0)
+            elif item.player == self.player:
+                items.append(item.name)
+                local.append(1)
+            else:
+                owner = self.multiworld.get_player_name(item.player)
+                items.append(f"{item.name} ({owner})")
+                local.append(0)
+        return names, items, local

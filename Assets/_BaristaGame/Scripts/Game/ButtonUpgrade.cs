@@ -2,12 +2,19 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using System.Collections.Generic;
+using UnityEngine.Localization.Components; // LocalizeStringEvent
 
 public class ButtonUpgrade : MonoBehaviour
 {
 
     [Header("References")]
     public TextMeshProUGUI MoneyText;
+
+    // The title text on a shop-converted button (the one we populate with the
+    // item name). Captured in ConfigureAsShopSlot; its localizer is disabled.
+    private TMP_Text shopLabel;
+    // Other text on the button that we keep blanked (old subtitle, etc.).
+    private List<TMP_Text> shopBlankTexts = new List<TMP_Text>();
 
     [Header("Settings")]
 
@@ -170,6 +177,51 @@ public class ButtonUpgrade : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Turns this button into AP shop slot #slotIndex. Disables the title's
+    /// LocalizeStringEvent (which would otherwise overwrite the text we set)
+    /// and captures the title TMP so UpdateShopVisuals can populate it.
+    /// </summary>
+    public void ConfigureAsShopSlot(int slotIndex)
+    {
+        TypeOfUpgrade = UpgradeType.ShopLocation;
+        ShopSlotIndex = slotIndex;
+        MaxUpgrades   = 0; // unlimited; the shop branch governs availability
+
+        // The localized title is the label we want to own. Disable each
+        // localizer under this button and capture the TMP it drove (which is
+        // not the price text). The price text has no localizer, so it's safe.
+        foreach (var loc in GetComponentsInChildren<LocalizeStringEvent>(true))
+        {
+            loc.enabled = false;
+            var t = loc.GetComponent<TMP_Text>();
+            if (t == null) t = loc.GetComponentInChildren<TMP_Text>(true);
+            if (t != null && t != MoneyText) shopLabel = t;
+        }
+
+        // Fallback if no localizer was found: first child TMP that isn't the price.
+        if (shopLabel == null)
+        {
+            foreach (var t in GetComponentsInChildren<TMP_Text>(true))
+            {
+                if (t != MoneyText) { shopLabel = t; break; }
+            }
+        }
+
+        // Any remaining text on the button (e.g. the original "Production+"
+        // subtitle) is clutter — blank it and disable its localizer so it
+        // doesn't repopulate. We keep only the item label and the price.
+        shopBlankTexts.Clear();
+        foreach (var t in GetComponentsInChildren<TMP_Text>(true))
+        {
+            if (t == MoneyText || t == shopLabel) continue;
+            var loc = t.GetComponent<LocalizeStringEvent>();
+            if (loc != null) loc.enabled = false;
+            t.text = "";
+            shopBlankTexts.Add(t);
+        }
+    }
+
     private void UpdateShopVisuals()
     {
         if (button == null || gamemode == null)
@@ -180,15 +232,22 @@ public class ButtonUpgrade : MonoBehaviour
         var rm = RandomizerManager.Instance;
         int available = rm != null ? rm.GetShopQueueCount() : 0;
 
-        // This slot has nothing left to sell — disable and mark sold out.
+        // This slot has nothing left to sell - disable and mark sold out.
         if (rm == null || ShopSlotIndex >= available)
         {
             button.interactable = false;
             if (MoneyText != null) MoneyText.text = Statics.ButtonMaxUpgrades;
+            if (shopLabel != null) shopLabel.text = "Sold Out";
             return;
         }
 
-        currentCost = rm.GetCurrentShopCost();
+        // Label the button with what this slot will hand out. Set every frame
+        // so it stays correct as the queue advances after each purchase.
+        if (shopLabel != null) shopLabel.text = rm.GetShopItemDisplayForSlot(ShopSlotIndex);
+        for (int i = 0; i < shopBlankTexts.Count; i++)
+            if (shopBlankTexts[i] != null) shopBlankTexts[i].text = "";
+
+        currentCost = rm.GetShopCostForSlot(ShopSlotIndex);
         if (MoneyText != null)
         {
             MoneyText.text = currentCost.ToString("0.00") + " " + Statics.CurrencySymbol;
@@ -201,7 +260,7 @@ public class ButtonUpgrade : MonoBehaviour
         if (TypeOfUpgrade == UpgradeType.ShopLocation)
         {
             currentCost = RandomizerManager.Instance != null
-                ? RandomizerManager.Instance.GetCurrentShopCost()
+                ? RandomizerManager.Instance.GetShopCostForSlot(ShopSlotIndex)
                 : 0f;
             return;
         }

@@ -99,6 +99,11 @@ public class GameWinManager : MonoBehaviour
             {
                 KeyBindingManager.instance.Paused();
                 GameWon = true;
+
+                // Tell Archipelago the goal (barista-overflow good end) is complete.
+                if (RandomizerManager.Instance != null)
+                    RandomizerManager.Instance.OnGameWon();
+
                 //ShowWinScreen();
                 GameOverArcade.enabled = false;
                 milkWave.GameWon = true;

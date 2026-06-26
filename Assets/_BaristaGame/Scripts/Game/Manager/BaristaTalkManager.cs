@@ -378,6 +378,12 @@ public class BaristaTalkManager : MonoBehaviour
         StartBaristaTalk(Statics.GetRandomFromArray(Statics.BaristaTalk_BadEnd), 0, EventOffsetEnd);
     }
 
+    /// <summary>Make the barista announce an Archipelago event (item unlocked / check sent).</summary>
+    public void AnnounceAP(string text)
+    {
+        StartBaristaTalk(new DialogSentence(text), 0, EventOffsetEnd);
+    }
+
     public void StartBaristaTalk(DialogSentence sentence, float startOffset, float stopOffset)
     {
         SetTimeForLastSentence();

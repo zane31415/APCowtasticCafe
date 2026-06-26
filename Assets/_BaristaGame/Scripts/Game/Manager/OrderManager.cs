@@ -1932,24 +1932,39 @@ public class OrderManager : MonoBehaviour
 
                 dialogeManager.StartDialogueSuccess(ActiveCustomer);
 
-                // Randomizer Integration
-                if (RandomizerManager.Instance != null && cupController != null)
+                // Randomizer Integration: an ingredient only counts toward an AP
+                // check if the customer ASKED for it, it actually ended up in the
+                // cup, and the drink was rated Good or better (no slop, no sneaking).
+                if (RandomizerManager.Instance != null && cupController != null && ActiveCustomer != null)
                 {
-                    if (cupController.Espresso > 0.01f) RandomizerManager.Instance.TrackIngredientServe("Espresso");
-                    if (cupController.Coffee > 0.01f) RandomizerManager.Instance.TrackIngredientServe("Coffee");
-                    if (cupController.Chocolate > 0.01f) RandomizerManager.Instance.TrackIngredientServe("Chocolate");
-                    if (cupController.Tea > 0.01f) RandomizerManager.Instance.TrackIngredientServe("Tea");
-                    if (cupController.Milk > 0.01f) RandomizerManager.Instance.TrackIngredientServe("Milk");
-                    if (cupController.BreastMilk > 0.01f) RandomizerManager.Instance.TrackIngredientServe("BreastMilk");
-                    if (cupController.Cream > 0.01f) RandomizerManager.Instance.TrackIngredientServe("Cream");
-                    if (cupController.Sugar > 0.01f) RandomizerManager.Instance.TrackIngredientServe("Sugar");
+                    int ratingIndex = System.Array.IndexOf(Ratings, ratingClass);
+                    bool goodOrBetter = ratingIndex >= 0 && ratingIndex <= 2; // Perfect / Great / Good
 
-                    if (cupController.Ice) RandomizerManager.Instance.TrackIngredientServe("Ice");
-                    if (cupController.Boba) RandomizerManager.Instance.TrackIngredientServe("Boba");
-                    if (cupController.WhippedCream) RandomizerManager.Instance.TrackIngredientServe("WhipedCream");
-                    if (cupController.CaramelSauce) RandomizerManager.Instance.TrackIngredientServe("CaramelSauce");
-                    if (cupController.ChocolateSauce) RandomizerManager.Instance.TrackIngredientServe("ChocolateSauce");
-                    if (cupController.Sprinkles) RandomizerManager.Instance.TrackIngredientServe("Sprinkles");
+                    if (goodOrBetter)
+                    {
+                        var askedF = new System.Collections.Generic.HashSet<Fillings>(ActiveCustomer.OrderFillings);
+                        var askedT = new System.Collections.Generic.HashSet<Toppings>(ActiveCustomer.Toppings);
+
+                        void Serve(string name, bool inCup, bool asked)
+                        {
+                            if (inCup && asked) RandomizerManager.Instance.TrackIngredientServe(name);
+                        }
+
+                        Serve("Espresso",   cupController.Espresso   > 0.01f, askedF.Contains(Fillings.Espresso));
+                        Serve("Coffee",     cupController.Coffee     > 0.01f, askedF.Contains(Fillings.Coffee));
+                        Serve("Chocolate",  cupController.Chocolate  > 0.01f, askedF.Contains(Fillings.Chocolate));
+                        Serve("Tea",        cupController.Tea        > 0.01f, askedF.Contains(Fillings.Tea));
+                        Serve("Milk",       cupController.Milk       > 0.01f, askedF.Contains(Fillings.Milk));
+                        // Flustered customers receive breast milk in place of the milk they asked for.
+                        Serve("BreastMilk", cupController.BreastMilk > 0.01f,
+                              askedF.Contains(Fillings.BreastMilk) || askedF.Contains(Fillings.Milk));
+                        Serve("Cream",      cupController.Cream      > 0.01f, askedF.Contains(Fillings.Cream));
+                        Serve("Sugar",      cupController.Sugar      > 0.01f, askedF.Contains(Fillings.Sugar));
+
+                        Serve("Ice",        cupController.Ice,       askedT.Contains(Toppings.Ice));
+                        Serve("Boba",       cupController.Boba,      askedT.Contains(Toppings.Boba));
+                        Serve("Sprinkles",  cupController.Sprinkles, askedT.Contains(Toppings.Sprinkles));
+                    }
                 }
 
                 baristaTalkManager.TryBaristaEventCupFinished();
