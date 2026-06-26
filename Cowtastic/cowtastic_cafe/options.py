@@ -44,9 +44,20 @@ class ExtraCandy(Range):
     default = 1
 
 
+class MilkFlow(Range):
+    """How many 'Milk Flow Increase' items are in the pool. Each one raises the
+    barista's actual milk production rate. Set to 0 to have none. They're added
+    as space permits alongside the other useful upgrades."""
+    display_name = "Milk Flow Increases"
+    range_start = 0
+    range_end = 20
+    default = 5
+
+
 @dataclass
 class CowtasticOptions(PerGameCommonOptions):
     drinks_per_check: DrinksPerCheck
     checks_per_ingredient: ChecksPerIngredient
     shop_locations: ShopLocations
     extra_candy: ExtraCandy
+    milk_flow: MilkFlow

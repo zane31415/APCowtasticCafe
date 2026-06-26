@@ -45,9 +45,10 @@ public class ArchipelagoClient : MonoBehaviour
     // ---------------------------------------------------------------------------
     // Item ID → name  (mirrors items.py ITEM_NAME_TO_ID)
     // ---------------------------------------------------------------------------
+    // MUST match items.py INGREDIENTS order exactly (drives item & location IDs).
     private static readonly string[] IngredientOrder = {
-        "Espresso", "Coffee", "Chocolate", "Tea", "Milk",
-        "BreastMilk", "Cream", "Sugar", "Ice", "Boba", "Sprinkles"
+        "Espresso", "Coffee", "Chocolate", "Tea", "Milk", "Cream", "Sugar",
+        "Ice", "Boba", "Sprinkles", "WhipedCream", "CaramelSauce", "ChocolateSauce"
     };
 
     private static readonly Dictionary<long, string> ItemIdToName;
@@ -60,8 +61,7 @@ public class ArchipelagoClient : MonoBehaviour
         ItemIdToName[id++] = "Stretchy Candy";
         ItemIdToName[id++] = "Fullness Tolerance";
         ItemIdToName[id++] = "Happiness Upgrade";
-        ItemIdToName[id++] = "Max Flow Upgrade";
-        ItemIdToName[id++] = "Min Flow Upgrade";
+        ItemIdToName[id++] = "Milk Flow Increase";
         ItemIdToName[id++] = "Decoration";
 
         // Cosmetics — MUST stay in the same order as items.py COSMETICS.

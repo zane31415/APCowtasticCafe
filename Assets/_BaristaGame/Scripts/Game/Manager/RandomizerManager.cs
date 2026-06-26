@@ -50,6 +50,9 @@ public class RandomizerManager : MonoBehaviour
     public const int RequiredCandy = 19;
     public int MilkCapacityCount = 0;
 
+    // How much each "Milk Flow Increase" raises the production rate.
+    public const int MilkFlowIncrement = 5;
+
     // Cosmetic AP item name -> PermanentUnlock UnlockId, built from slot data.
     private Dictionary<string, string> _cosmeticToUnlockId = new Dictionary<string, string>();
 
@@ -91,9 +94,18 @@ public class RandomizerManager : MonoBehaviour
 
     private static string PrettyItemName(string itemId)
     {
-        return itemId.StartsWith("Ingredient: ")
+        string name = itemId.StartsWith("Ingredient: ")
             ? itemId.Substring("Ingredient: ".Length)
             : itemId;
+
+        // Tidy up the game's enum-spelled topping tokens for display.
+        switch (name)
+        {
+            case "WhipedCream":    return "Whipped Cream";
+            case "CaramelSauce":   return "Caramel Sauce";
+            case "ChocolateSauce": return "Cocoa Powder";
+            default:               return name;
+        }
     }
 
     /// <summary>
@@ -230,14 +242,12 @@ public class RandomizerManager : MonoBehaviour
         {
             _gameMode.BuyHappyness(1);
         }
-        else if (itemId == "Max Flow Upgrade")
+        else if (itemId == "Milk Flow Increase")
         {
-            _gameMode.MaxProductionRate += 5;
-        }
-        else if (itemId == "Min Flow Upgrade")
-        {
-            _gameMode.MinProductionRate -= 5;
-            if (_gameMode.MinProductionRate < 0) _gameMode.MinProductionRate = 0;
+            // Raise the ceiling, then actually bump the production rate (which is
+            // clamped to MaxProductionRate inside BuyUpgradeProduction).
+            _gameMode.MaxProductionRate += MilkFlowIncrement;
+            _gameMode.BuyUpgradeProduction(MilkFlowIncrement);
         }
         else if (_cosmeticToUnlockId.ContainsKey(itemId))
         {

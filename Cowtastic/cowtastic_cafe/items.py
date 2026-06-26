@@ -6,9 +6,12 @@ from BaseClasses import Item, ItemClassification
 if TYPE_CHECKING:
     from .world import CowtasticWorld
 
+# Ingredient tokens match the game's Fillings/Toppings enum names exactly so
+# the client can unlock/track them by name. BreastMilk is intentionally NOT
+# here — it's a core mechanic that's always available, never gated.
 INGREDIENTS = [
-    "Espresso", "Coffee", "Chocolate", "Tea", "Milk",
-    "BreastMilk", "Cream", "Sugar", "Ice", "Boba", "Sprinkles",
+    "Espresso", "Coffee", "Chocolate", "Tea", "Milk", "Cream", "Sugar",
+    "Ice", "Boba", "Sprinkles", "WhipedCream", "CaramelSauce", "ChocolateSauce",
 ]
 
 # These ingredients are unlocked from the start in the base game.
@@ -23,11 +26,10 @@ STARTING_INGREDIENTS = {"Milk", "Coffee"}
 REQUIRED_CANDY = 19
 
 # Useful non-filler items placed after mandatory progression items.
+# "Milk Flow Increase" is added separately, its count driven by an option.
 USEFUL_ITEMS: dict[str, int] = {
     "Fullness Tolerance": 5,
     "Happiness Upgrade":  5,
-    "Max Flow Upgrade":   5,
-    "Min Flow Upgrade":   5,
 }
 
 # Cosmetic unlocks (filler). These replace generic "Decoration" filler when
@@ -55,8 +57,7 @@ for _ing in INGREDIENTS:
 ITEM_NAME_TO_ID["Stretchy Candy"]      = _id; _id += 1
 ITEM_NAME_TO_ID["Fullness Tolerance"]  = _id; _id += 1
 ITEM_NAME_TO_ID["Happiness Upgrade"]   = _id; _id += 1
-ITEM_NAME_TO_ID["Max Flow Upgrade"]    = _id; _id += 1
-ITEM_NAME_TO_ID["Min Flow Upgrade"]    = _id; _id += 1
+ITEM_NAME_TO_ID["Milk Flow Increase"]  = _id; _id += 1
 ITEM_NAME_TO_ID["Decoration"]          = _id; _id += 1
 
 # Cosmetics are appended last; the client mirrors this exact order when
@@ -70,8 +71,7 @@ ITEM_CLASSIFICATIONS: dict[str, ItemClassification] = {
     "Stretchy Candy":     ItemClassification.progression,
     "Fullness Tolerance": ItemClassification.useful,
     "Happiness Upgrade":  ItemClassification.useful,
-    "Max Flow Upgrade":   ItemClassification.useful,
-    "Min Flow Upgrade":   ItemClassification.useful,
+    "Milk Flow Increase": ItemClassification.useful,
     "Decoration":         ItemClassification.filler,
     **{cos: ItemClassification.filler for cos in COSMETICS},
 }
@@ -106,9 +106,10 @@ def create_all_items(world: CowtasticWorld) -> None:
     total_locations = serve_locations + world.options.shop_locations.value
     remaining = total_locations - len(pool)
 
-    # Fill remaining slots: useful upgrades first, then cosmetics (which take the
-    # place of generic filler), and finally plain "Decoration" if slots are left.
-    useful_flat: list[str] = []
+    # Fill remaining slots: Milk Flow Increase (option-driven count) and the
+    # other useful upgrades first, then cosmetics (which take the place of
+    # generic filler), and finally plain "Decoration" if slots are left.
+    useful_flat: list[str] = ["Milk Flow Increase"] * world.options.milk_flow.value
     for name, count in USEFUL_ITEMS.items():
         useful_flat.extend([name] * count)
 

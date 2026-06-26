@@ -1955,15 +1955,15 @@ public class OrderManager : MonoBehaviour
                         Serve("Chocolate",  cupController.Chocolate  > 0.01f, askedF.Contains(Fillings.Chocolate));
                         Serve("Tea",        cupController.Tea        > 0.01f, askedF.Contains(Fillings.Tea));
                         Serve("Milk",       cupController.Milk       > 0.01f, askedF.Contains(Fillings.Milk));
-                        // Flustered customers receive breast milk in place of the milk they asked for.
-                        Serve("BreastMilk", cupController.BreastMilk > 0.01f,
-                              askedF.Contains(Fillings.BreastMilk) || askedF.Contains(Fillings.Milk));
                         Serve("Cream",      cupController.Cream      > 0.01f, askedF.Contains(Fillings.Cream));
                         Serve("Sugar",      cupController.Sugar      > 0.01f, askedF.Contains(Fillings.Sugar));
 
-                        Serve("Ice",        cupController.Ice,       askedT.Contains(Toppings.Ice));
-                        Serve("Boba",       cupController.Boba,      askedT.Contains(Toppings.Boba));
-                        Serve("Sprinkles",  cupController.Sprinkles, askedT.Contains(Toppings.Sprinkles));
+                        Serve("Ice",            cupController.Ice,            askedT.Contains(Toppings.Ice));
+                        Serve("Boba",           cupController.Boba,           askedT.Contains(Toppings.Boba));
+                        Serve("Sprinkles",      cupController.Sprinkles,      askedT.Contains(Toppings.Sprinkles));
+                        Serve("WhipedCream",    cupController.WhippedCream,    askedT.Contains(Toppings.WhipedCream));
+                        Serve("CaramelSauce",   cupController.CaramelSauce,    askedT.Contains(Toppings.CaramelSauce));
+                        Serve("ChocolateSauce", cupController.ChocolateSauce,  askedT.Contains(Toppings.ChocolateSauce));
                     }
                 }
 
