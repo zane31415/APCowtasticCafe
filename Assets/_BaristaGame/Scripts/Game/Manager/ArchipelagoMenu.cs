@@ -30,7 +30,37 @@ public class ArchipelagoMenu : MonoBehaviour
     private void Start()
     {
         HideArcadeMode();
-        InjectConnectPanel();
+        var apClient = ArchipelagoClient.Instance;
+        if (apClient != null && apClient.IsConnected)
+            InjectAlreadyConnectedPanel(apClient.SlotName);
+        else
+            InjectConnectPanel();
+    }
+
+    // -------------------------------------------------------------------------
+    // Already-connected panel (shown when returning to main menu mid-session)
+    // -------------------------------------------------------------------------
+
+    private void InjectAlreadyConnectedPanel(string slotName)
+    {
+        var mainMenu = GameObject.Find("Main Menu");
+        if (mainMenu == null)
+        {
+            Debug.LogError("[AP] 'Main Menu' not found — falling back to connect panel");
+            InjectConnectPanel();
+            return;
+        }
+
+        var panel = BuildPanel(mainMenu);
+        AddTitle(panel, "Archipelago Multiworld");
+        AddLabel(panel, $"Connected as: {slotName}", 16);
+        AddButton(panel, "Play Randomizer", () => LevelManager.ChangeScene(GameSceneName));
+        _statusLabel = AddLabel(panel, "", 14);
+        AddButton(panel, "Disconnect", () =>
+        {
+            ArchipelagoClient.Instance?.Disconnect();
+            LevelManager.ChangeScene("MainMenu");
+        });
     }
 
     // -------------------------------------------------------------------------

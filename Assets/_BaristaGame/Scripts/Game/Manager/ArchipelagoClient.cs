@@ -17,7 +17,7 @@ public class ArchipelagoClient : MonoBehaviour
     public int    DbgItemsReceived { get; private set; }
     public string DbgLastCmd       { get; private set; } = "(none)";
     public int    DbgCheckedFromServer { get; private set; }
-    public int    PendingItemCount => _pendingItems.Count;
+    public int    TotalItemsReceived => _allItems.Count;
 
     private APNetworking _apNetworking;
 
@@ -27,13 +27,14 @@ public class ArchipelagoClient : MonoBehaviour
     private RandomizerManager _randomizerManager;
 
     private HashSet<long>  _checkedLocations = new HashSet<long>();
-    private List<string>   _pendingItems     = new List<string>();  // received before RandomizerManager existed
+    private List<string>   _allItems         = new List<string>();  // all items ever received, in order (for scene-reload replay)
 
     // Slot data is cached here because Connected usually arrives on the menu,
     // before RandomizerManager (a game-scene singleton) exists. We flush it the
     // moment the manager appears, so settings aren't silently lost.
     private bool         _slotDataPending;
-    private int          _sdDrinks, _sdChecks, _sdShop;
+    private int          _sdDrinks, _sdChecks, _sdShop, _sdBasePrice = 50, _sdPriceStep = 25;
+    private int          _sdMinDrinkQuality = 2, _sdDeathLink = 0, _sdDeathLinkSendQuality = 3, _sdDeathLinkPenalty = 20;
     private List<string> _sdLocNames = new List<string>();
     private List<string> _sdLocItems = new List<string>();
     private List<long>   _sdLocLocal = new List<long>();
@@ -43,26 +44,61 @@ public class ArchipelagoClient : MonoBehaviour
     private int _receivedCount = 0;
 
     // ---------------------------------------------------------------------------
-    // Item ID → name  (mirrors items.py ITEM_NAME_TO_ID)
+    // Ingredients (mirrors items.py — these drive item & location IDs and names)
     // ---------------------------------------------------------------------------
-    // MUST match items.py INGREDIENTS order exactly (drives item & location IDs).
-    private static readonly string[] IngredientOrder = {
+    // UNLOCKABLE ingredients, in item-ID order. MUST match items.py INGREDIENTS.
+    // Tokens are the game's Fillings/Toppings enum names (some misspelled).
+    private static readonly string[] IngredientItemOrder = {
         "Espresso", "Coffee", "Chocolate", "Tea", "Milk", "Cream", "Sugar",
         "Ice", "Boba", "Sprinkles", "WhipedCream", "CaramelSauce", "ChocolateSauce"
     };
 
+    // ALL ingredients with serve locations, in location-ID order. MUST match
+    // items.py SERVE_INGREDIENTS. Breast Milk is appended (no unlock item).
+    public static readonly string[] ServeIngredientOrder = {
+        "Espresso", "Coffee", "Chocolate", "Tea", "Milk", "Cream", "Sugar",
+        "Ice", "Boba", "Sprinkles", "WhipedCream", "CaramelSauce", "ChocolateSauce",
+        "BreastMilk"
+    };
+
+    // Game enum token -> Archipelago display name. MUST match items.py
+    // INGREDIENT_DISPLAY. Tokens not listed display as-is.
+    private static readonly Dictionary<string, string> IngredientDisplay =
+        new Dictionary<string, string>
+    {
+        { "WhipedCream",    "Whipped Cream" },
+        { "CaramelSauce",   "Caramel Sauce" },
+        { "ChocolateSauce", "Cocoa Powder" },
+        { "BreastMilk",     "Breast Milk" },
+    };
+
+    /// <summary>Enum token -> AP display name (e.g. "WhipedCream" -> "Whipped Cream").</summary>
+    public static string DisplayIngredient(string token) =>
+        IngredientDisplay.TryGetValue(token, out string d) ? d : token;
+
+    /// <summary>AP display name -> enum token (inverse of DisplayIngredient).</summary>
+    public static string TokenFromDisplay(string display)
+    {
+        foreach (var kv in IngredientDisplay)
+            if (kv.Value == display) return kv.Key;
+        return display;
+    }
+
+    // ---------------------------------------------------------------------------
+    // Item ID → name  (mirrors items.py ITEM_NAME_TO_ID)
+    // ---------------------------------------------------------------------------
     private static readonly Dictionary<long, string> ItemIdToName;
     static ArchipelagoClient()
     {
         ItemIdToName = new Dictionary<long, string>();
         long id = 771771000L;
-        foreach (var ing in IngredientOrder)
-            ItemIdToName[id++] = $"Ingredient: {ing}";
+        foreach (var ing in IngredientItemOrder)
+            ItemIdToName[id++] = $"Ingredient: {DisplayIngredient(ing)}";
         ItemIdToName[id++] = "Stretchy Candy";
         ItemIdToName[id++] = "Fullness Tolerance";
         ItemIdToName[id++] = "Happiness Upgrade";
         ItemIdToName[id++] = "Milk Flow Increase";
-        ItemIdToName[id++] = "Decoration";
+        ItemIdToName[id++] = "Barista Smile :-)";
 
         // Cosmetics — MUST stay in the same order as items.py COSMETICS.
         foreach (var cos in CosmeticOrder)
@@ -117,7 +153,8 @@ public class ArchipelagoClient : MonoBehaviour
             return -1;
         }
 
-        // Serve locations: "Serve {Ingredient} #{n}"
+        // Serve locations: "Serve {Display Ingredient} #{n}" (display name may
+        // contain spaces, e.g. "Serve Whipped Cream #3").
         if (locationName.StartsWith("Serve "))
         {
             int hashIdx = locationName.LastIndexOf('#');
@@ -125,7 +162,7 @@ public class ArchipelagoClient : MonoBehaviour
 
             string ingredient  = locationName.Substring(6, hashIdx - 7).Trim();
             int    checkNumber = int.Parse(locationName.Substring(hashIdx + 1));
-            int    ingIdx      = Array.IndexOf(IngredientOrder, ingredient);
+            int    ingIdx      = Array.IndexOf(ServeIngredientOrder, TokenFromDisplay(ingredient));
             if (ingIdx < 0) return -1;
 
             return LocationBase + ingIdx * MaxChecksPerIngred + (checkNumber - 1);
@@ -165,17 +202,14 @@ public class ArchipelagoClient : MonoBehaviour
         // Flush slot data first so settings are applied before any queued items.
         if (_slotDataPending && Randomizer != null)
         {
-            Randomizer.ApplySlotData(_sdDrinks, _sdChecks, _sdShop, _sdLocNames, _sdLocItems, _sdLocLocal);
+            Randomizer.ApplySlotData(_sdDrinks, _sdChecks, _sdShop, _sdBasePrice, _sdPriceStep,
+                                     _sdMinDrinkQuality, _sdDeathLink != 0, _sdDeathLinkSendQuality, _sdDeathLinkPenalty,
+                                     _sdLocNames, _sdLocItems, _sdLocLocal);
             _slotDataPending = false;
         }
 
-        // Flush items that arrived before RandomizerManager was ready.
-        if (_pendingItems.Count > 0 && Randomizer != null)
-        {
-            foreach (string item in _pendingItems)
-                Randomizer.HandleItem(item);
-            _pendingItems.Clear();
-        }
+        // Items arriving before the game scene loads are held in _allItems and
+        // replayed via ReplayTo() when the scene loads (see RandomizerManager.OnSceneLoaded).
     }
 
     // ---------------------------------------------------------------------------
@@ -295,6 +329,8 @@ public class ArchipelagoClient : MonoBehaviour
             Debug.Log("[AP] RoomInfo received");
         if (msg.Contains("\"cmd\":\"PrintJSON\""))
             Debug.Log($"[AP] Server: {Truncate(msg, 300)}");
+        if (msg.Contains("\"cmd\":\"Bounce\""))
+            HandleBounce(msg);
     }
 
     private static string ExtractFirstCmd(string msg)
@@ -317,9 +353,19 @@ public class ArchipelagoClient : MonoBehaviour
 
         // Cache slot data; it's flushed to RandomizerManager in Update() once
         // that game-scene singleton exists (it usually doesn't yet, on the menu).
-        _sdDrinks   = ExtractInt(msg, "drinks_per_check",      3);
-        _sdChecks   = ExtractInt(msg, "checks_per_ingredient", 3);
-        _sdShop     = ExtractInt(msg, "shop_locations",        10);
+        _sdDrinks     = ExtractInt(msg, "drinks_per_check",      3);
+        _sdChecks     = ExtractInt(msg, "checks_per_ingredient", 3);
+        _sdShop       = ExtractInt(msg, "shop_locations",        10);
+        _sdBasePrice            = ExtractInt(msg, "shop_base_price",          50);
+        _sdPriceStep            = ExtractInt(msg, "shop_price_step",          25);
+        _sdMinDrinkQuality      = ExtractInt(msg, "min_drink_quality",        2);
+        _sdDeathLink            = ExtractInt(msg, "death_link",               0);
+        _sdDeathLinkSendQuality = ExtractInt(msg, "death_link_send_quality",  3);
+        _sdDeathLinkPenalty     = ExtractInt(msg, "death_link_penalty",       20);
+
+        // If DeathLink is enabled, update our tags so the server routes bounces to us.
+        if (_sdDeathLink != 0)
+            SendConnectUpdate("[\"DeathLink\"]");
         _sdLocNames = ExtractStringArray(msg, "loc_names");
         _sdLocItems = ExtractStringArray(msg, "loc_items");
         _sdLocLocal = ExtractLongArray(msg, "loc_local");
@@ -347,6 +393,9 @@ public class ArchipelagoClient : MonoBehaviour
         // reconnect) the server resends the full inventory with index 0; we must
         // only apply/announce items past _receivedCount so we don't double-count.
         int startIndex = ExtractInt(msg, "index", 0);
+        // A packet with index 0 is the server's full-inventory resync on connect/reconnect.
+        // Items in that batch are not "streaming" arrivals, so suppress the barista announcements.
+        bool silent = (startIndex == 0);
 
         // Collect item IDs in order.
         var ids = new List<long>();
@@ -374,10 +423,10 @@ public class ArchipelagoClient : MonoBehaviour
             string itemName = ItemIdToName.TryGetValue(ids[i], out string n) ? n : $"Unknown({ids[i]})";
             DbgItemsReceived++;
             Debug.Log($"[AP] Received item: {itemName} ({ids[i]})");
+            _allItems.Add(itemName);
             if (Randomizer != null)
-                Randomizer.HandleItem(itemName);
-            else
-                _pendingItems.Add(itemName);
+                Randomizer.HandleItem(itemName, silent);
+            // else: item is in _allItems; RandomizerManager.OnSceneLoaded will replay it when game scene loads.
         }
     }
 
@@ -485,6 +534,64 @@ public class ArchipelagoClient : MonoBehaviour
         Debug.Log("[AP] Sending goal completion (StatusUpdate 30)");
         if (_apNetworking != null)
             await _apNetworking.SendMessageAsync("[{\"cmd\":\"StatusUpdate\",\"status\":30}]");
+    }
+
+    /// <summary>
+    /// Called by RandomizerManager when a new game scene loads.
+    /// Re-applies cached slot data and silently re-queues all received items so
+    /// the fresh scene starts with the correct unlocks even after a "try again".
+    /// </summary>
+    /// <summary>
+    /// Returns the number of consecutive serve-location checks that have already
+    /// been sent for <paramref name="ingredient"/>, starting from check #1.
+    /// If #1 and #2 are sent but #3 is not, returns 2 even if later ones are sent.
+    /// </summary>
+    public int GetConsecutiveServeSent(string ingredient, int totalChecks)
+    {
+        int ingIdx = Array.IndexOf(ServeIngredientOrder, ingredient);
+        if (ingIdx < 0) return 0;
+        for (int n = 1; n <= totalChecks; n++)
+        {
+            long id = LocationBase + ingIdx * MaxChecksPerIngred + (n - 1);
+            if (!_checkedLocations.Contains(id)) return n - 1;
+        }
+        return totalChecks;
+    }
+
+    public void ReplayTo(RandomizerManager rm)
+    {
+        rm.ApplySlotData(_sdDrinks, _sdChecks, _sdShop, _sdBasePrice, _sdPriceStep,
+                         _sdMinDrinkQuality, _sdDeathLink != 0, _sdDeathLinkSendQuality, _sdDeathLinkPenalty,
+                         _sdLocNames, _sdLocItems, _sdLocLocal);
+        foreach (string item in _allItems)
+            rm.RequeueItem(item);
+    }
+
+    /// <summary>Sends a ConnectUpdate packet to update our tags (e.g. to add "DeathLink").</summary>
+    private async void SendConnectUpdate(string tagsJson)
+    {
+        if (_apNetworking == null) return;
+        await _apNetworking.SendMessageAsync($"[{{\"cmd\":\"ConnectUpdate\",\"tags\":{tagsJson}}}]");
+    }
+
+    /// <summary>Sends a DeathLink bounce to all other DeathLink-opted players.</summary>
+    public async void SendDeathLink(string cause)
+    {
+        if (_apNetworking == null || !IsConnected) return;
+        double timestamp = (DateTime.UtcNow - new DateTime(1970,1,1,0,0,0,DateTimeKind.Utc)).TotalSeconds;
+        string safeSlot  = (SlotName ?? "unknown").Replace("\"","\\\"");
+        string safeCause = (cause ?? "").Replace("\"","\\\"");
+        string packet = $"[{{\"cmd\":\"Bounce\",\"tags\":[\"DeathLink\"],\"data\":{{\"time\":{timestamp:F3},\"source\":\"{safeSlot}\",\"cause\":\"{safeCause}\"}}}}]";
+        Debug.Log($"[AP] Sending DeathLink: {cause}");
+        await _apNetworking.SendMessageAsync(packet);
+    }
+
+    private void HandleBounce(string msg)
+    {
+        if (!msg.Contains("\"DeathLink\"")) return;
+        Debug.Log("[AP] DeathLink received");
+        if (Randomizer != null)
+            Randomizer.ReceiveDeathLink();
     }
 
     // ---------------------------------------------------------------------------

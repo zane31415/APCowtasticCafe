@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 public class RandomizerManager : MonoBehaviour
 {
@@ -39,11 +40,20 @@ public class RandomizerManager : MonoBehaviour
     private const float AnnounceInterval = 4f;
 
     // Shop pricing is per-slot, not per-purchase: "Shop Slot #N" costs
-    // BasePrice + Step*(N-1), capped at PriceCap. The apworld mirrors this to
-    // gate later slots behind ingredient count ($50 of price = 1 ingredient).
+    // BasePrice + Step*(N-1), capped at PriceCap. Base and step come from slot
+    // data so players can configure them in their yaml. Logic gating in the
+    // apworld is slot-position-based, not price-based, so these only affect cost.
     public float ShopBasePrice = 50f;
     public float ShopPriceStep = 25f;
-    public float ShopPriceCap  = 550f;
+    public const float ShopPriceCap = 550f;
+
+    // Drink quality gate: Ratings array index threshold for AP checks (0=Perfect … 3=Okay).
+    public int MinDrinkQuality = 2;
+
+    // DeathLink configuration (from slot data).
+    public bool DeathLinkEnabled      = false;
+    public int  DeathLinkSendQuality  = 3;  // rating index at or above which we send death
+    public int  DeathLinkPenalty      = 20; // happiness lost on receiving deathlink
 
     // Goal is the in-game "barista overflows" good end (see GameWinManager),
     // not a candy count. RequiredCandy is just informational for the overlay.
@@ -63,13 +73,61 @@ public class RandomizerManager : MonoBehaviour
             Instance = this;
             DontDestroyOnLoad(gameObject);
             InitializeShopQueue();
-            // Ingredients are AP-gated; the player can't buy them with money.
             FillingTool.PurchasingEnabled = false;
+            SceneManager.sceneLoaded += OnSceneLoaded;
         }
         else
         {
             Destroy(gameObject);
         }
+    }
+
+    private void OnDestroy()
+    {
+        SceneManager.sceneLoaded -= OnSceneLoaded;
+    }
+
+    /// <summary>
+    /// Resets game-scene state whenever the game scene reloads (e.g. "try again").
+    /// Replays all AP items silently so ingredients, candy, etc. are restored
+    /// without re-announcing them.
+    /// </summary>
+    private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+    {
+        if (scene.name != "Game_Arcade") return;
+
+        _gameReady = false;
+        _gameMode  = null;
+        MilkCapacityCount = 0;
+        IngredientServeCounts.Clear();
+        _pendingItems.Clear();
+        _announceQueue.Clear();
+
+        var apClient = ArchipelagoClient.Instance;
+        apClient?.ReplayTo(this);
+
+        // Restore serve counts from already-sent locations so we don't re-send them.
+        // We walk from check #1 upward and stop at the first gap (collect ordering:
+        // if #1 and #3 are sent but #2 isn't, only #1 counts toward the restored count).
+        if (apClient != null)
+        {
+            foreach (string ing in ArchipelagoClient.ServeIngredientOrder)
+            {
+                int consecutive = apClient.GetConsecutiveServeSent(ing, NumberOfChecks);
+                if (consecutive > 0)
+                    IngredientServeCounts[ing] = consecutive * DrinksPerCheck;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Silently queues an item for application once the game scene is ready.
+    /// Used by ArchipelagoClient.ReplayTo() to restore state after a scene reload
+    /// without re-announcing items the player already received.
+    /// </summary>
+    public void RequeueItem(string itemId)
+    {
+        _pendingItems.Add(itemId);
     }
 
 
@@ -94,18 +152,11 @@ public class RandomizerManager : MonoBehaviour
 
     private static string PrettyItemName(string itemId)
     {
-        string name = itemId.StartsWith("Ingredient: ")
+        // AP item names already use display spelling (the apworld prettifies
+        // ingredient names), so we just strip the "Ingredient: " prefix.
+        return itemId.StartsWith("Ingredient: ")
             ? itemId.Substring("Ingredient: ".Length)
             : itemId;
-
-        // Tidy up the game's enum-spelled topping tokens for display.
-        switch (name)
-        {
-            case "WhipedCream":    return "Whipped Cream";
-            case "CaramelSauce":   return "Caramel Sauce";
-            case "ChocolateSauce": return "Cocoa Powder";
-            default:               return name;
-        }
     }
 
     /// <summary>
@@ -205,12 +256,13 @@ public class RandomizerManager : MonoBehaviour
             Announce($"{info.Item} sent!");
     }
 
-    public void HandleItem(string itemId)
+    public void HandleItem(string itemId, bool silent = false)
     {
         Debug.Log($"[Item Received] {itemId}");
 
-        // Tell the player what they just got. (Victory is never transmitted.)
-        if (itemId != "Victory")
+        // Announce only for items that arrive as live streaming deliveries, not
+        // the initial resync on connect (which replays the full inventory).
+        if (!silent && itemId != "Victory")
             Announce($"{PrettyItemName(itemId)} unlocked!");
 
         if (!_gameReady)
@@ -226,8 +278,10 @@ public class RandomizerManager : MonoBehaviour
     {
         if (itemId.StartsWith("Ingredient: "))
         {
-            string ingredientName = itemId.Substring("Ingredient: ".Length);
-            UnlockIngredient(ingredientName);
+            // The item carries the AP display name; convert back to the game's
+            // enum token so UnlockIngredient can match the FillingTool.
+            string display = itemId.Substring("Ingredient: ".Length);
+            UnlockIngredient(ArchipelagoClient.TokenFromDisplay(display));
         }
         else if (itemId == "Stretchy Candy")
         {
@@ -253,7 +307,7 @@ public class RandomizerManager : MonoBehaviour
         {
             UnlockCosmetic(itemId);
         }
-        else if (itemId == "Decoration" || itemId == "Victory")
+        else if (itemId == "Barista Smile :-)" || itemId == "Victory")
         {
             // Nothing to do for plain filler or the (never-transmitted) goal item.
         }
@@ -312,6 +366,20 @@ public class RandomizerManager : MonoBehaviour
     {
         AddRecentEvent("GOAL: barista overflow good end reached!");
         _archipelagoClient?.SendGoalComplete();
+    }
+
+    /// <summary>Called by ArchipelagoClient when a DeathLink bounce is received.</summary>
+    public void ReceiveDeathLink()
+    {
+        AddRecentEvent($"DeathLink received! -{DeathLinkPenalty} happiness");
+        if (_gameMode != null && DeathLinkPenalty > 0)
+            _gameMode.ChangeHappyness(-DeathLinkPenalty);
+    }
+
+    /// <summary>Called by OrderManager when a sufficiently bad drink is served with DeathLink on.</summary>
+    public void SendDeathLink(string cause)
+    {
+        _archipelagoClient?.SendDeathLink(cause);
     }
 
     public void Log(string message)
@@ -376,8 +444,10 @@ public class RandomizerManager : MonoBehaviour
             int checkNumber = count / DrinksPerCheck;
             if (checkNumber <= NumberOfChecks)
             {
-                // Location name must match the apworld's location_name() format.
-                HandleLocation($"Serve {ingredientName} #{checkNumber}");
+                // Location name must match the apworld's location_name() format,
+                // which uses the ingredient's display name (e.g. "Whipped Cream").
+                string display = ArchipelagoClient.DisplayIngredient(ingredientName);
+                HandleLocation($"Serve {display} #{checkNumber}");
             }
         }
     }
@@ -386,11 +456,19 @@ public class RandomizerManager : MonoBehaviour
     /// Called by ArchipelagoClient when slot data arrives after a successful connection.
     /// </summary>
     public void ApplySlotData(int drinksPerCheck, int checksPerIngredient, int shopLocations,
+                              int shopBasePrice, int shopPriceStep,
+                              int minDrinkQuality, bool deathLink, int deathLinkSendQuality, int deathLinkPenalty,
                               List<string> locNames, List<string> locItems, List<long> locLocal)
     {
-        DrinksPerCheck   = drinksPerCheck;
-        NumberOfChecks   = checksPerIngredient;
-        MaxShopLocations = shopLocations;
+        DrinksPerCheck       = drinksPerCheck;
+        NumberOfChecks       = checksPerIngredient;
+        MaxShopLocations     = shopLocations;
+        ShopBasePrice        = shopBasePrice;
+        ShopPriceStep        = shopPriceStep;
+        MinDrinkQuality      = minDrinkQuality;
+        DeathLinkEnabled     = deathLink;
+        DeathLinkSendQuality = deathLinkSendQuality;
+        DeathLinkPenalty     = deathLinkPenalty;
 
         _locInfo.Clear();
         if (locNames != null && locItems != null)

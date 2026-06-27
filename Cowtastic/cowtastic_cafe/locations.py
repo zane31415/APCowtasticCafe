@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 
 from BaseClasses import Location, ItemClassification
 
-from .items import INGREDIENTS, CowtasticItem
+from .items import SERVE_INGREDIENTS, CowtasticItem, display_name
 
 if TYPE_CHECKING:
     from .world import CowtasticWorld
@@ -25,9 +25,10 @@ def _loc_id(ingredient_index: int, check_index: int) -> int:
     return _BASE + ingredient_index * _MAX_CHECKS + check_index
 
 
-def location_name(ingredient: str, check_number: int) -> str:
-    """Stable AP location name, e.g. 'Serve Sugar #2'."""
-    return f"Serve {ingredient} #{check_number}"
+def location_name(ingredient_display: str, check_number: int) -> str:
+    """Stable AP location name, e.g. 'Serve Whipped Cream #2'.
+    Takes the ingredient's DISPLAY name (see items.display_name)."""
+    return f"Serve {ingredient_display} #{check_number}"
 
 
 def shop_location_name(slot_number: int) -> str:
@@ -35,22 +36,25 @@ def shop_location_name(slot_number: int) -> str:
     return f"Shop Slot #{slot_number}"
 
 
-# Shop pricing — MUST match the client's RandomizerManager (Base 50, Step 25,
-# Cap 550). Slot N costs 50 + 25*(N-1), capped at 550. Used to derive the
-# ingredient-count logic gate: every $50 of price needs one more ingredient.
-SHOP_BASE_PRICE = 50
-SHOP_PRICE_STEP = 25
-SHOP_PRICE_CAP  = 550
+# Shop pricing defaults and cap. The cap keeps late-game slot costs reasonable
+# regardless of the player's chosen base/step options.
+# Base and step are now player-configurable; the client receives them via slot
+# data and uses them to compute prices. Logic gating is slot-position-based
+# (see rules.py), so changing price never affects item accessibility.
+SHOP_BASE_PRICE_DEFAULT = 50
+SHOP_PRICE_STEP_DEFAULT = 25
+SHOP_PRICE_CAP          = 550
 
 
-def shop_slot_price(slot_number: int) -> int:
-    return min(SHOP_BASE_PRICE + SHOP_PRICE_STEP * (slot_number - 1), SHOP_PRICE_CAP)
+def shop_slot_price(slot_number: int, base: int = SHOP_BASE_PRICE_DEFAULT,
+                    step: int = SHOP_PRICE_STEP_DEFAULT) -> int:
+    return min(base + step * (slot_number - 1), SHOP_PRICE_CAP)
 
 
 # Pre-register all possible locations.
 LOCATION_NAME_TO_ID: dict[str, int] = {
-    location_name(ing, c + 1): _loc_id(i, c)
-    for i, ing in enumerate(INGREDIENTS)
+    location_name(display_name(ing), c + 1): _loc_id(i, c)
+    for i, ing in enumerate(SERVE_INGREDIENTS)
     for c in range(_MAX_CHECKS)
 }
 LOCATION_NAME_TO_ID.update({
@@ -67,9 +71,9 @@ def create_all_locations(world: CowtasticWorld) -> None:
     cafe = world.get_region("Cafe")
     checks = world.options.checks_per_ingredient.value
 
-    for i, ing in enumerate(INGREDIENTS):
+    for i, ing in enumerate(SERVE_INGREDIENTS):
         for c in range(checks):
-            name = location_name(ing, c + 1)
+            name = location_name(display_name(ing), c + 1)
             loc = CowtasticLocation(world.player, name, _loc_id(i, c), cafe)
             cafe.locations.append(loc)
 

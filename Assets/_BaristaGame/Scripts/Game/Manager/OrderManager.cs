@@ -1910,7 +1910,18 @@ public class OrderManager : MonoBehaviour
             }
 
 
-            if (ratingClass.isFail == false) //rating > 0.1f || 
+            // DeathLink: a sufficiently bad drink sends a death to all opted-in
+            // players. Checked here (outside the isFail branch) so failed drinks
+            // like "Ruined!!" can trigger it too.
+            if (ratingClass != null && RandomizerManager.Instance != null &&
+                RandomizerManager.Instance.DeathLinkEnabled)
+            {
+                int dlIndex = System.Array.IndexOf(Ratings, ratingClass);
+                if (dlIndex >= 0 && dlIndex >= RandomizerManager.Instance.DeathLinkSendQuality)
+                    RandomizerManager.Instance.SendDeathLink($"A {ratingClass.Name} drink from the cafe");
+            }
+
+            if (ratingClass.isFail == false) //rating > 0.1f ||
             {
                 //Calc Money
                 float moneyMultipler = ratingClass.MoneyMultipler;
@@ -1938,7 +1949,8 @@ public class OrderManager : MonoBehaviour
                 if (RandomizerManager.Instance != null && cupController != null && ActiveCustomer != null)
                 {
                     int ratingIndex = System.Array.IndexOf(Ratings, ratingClass);
-                    bool goodOrBetter = ratingIndex >= 0 && ratingIndex <= 2; // Perfect / Great / Good
+                    int minQuality  = RandomizerManager.Instance.MinDrinkQuality;
+                    bool goodOrBetter = ratingIndex >= 0 && ratingIndex <= minQuality;
 
                     if (goodOrBetter)
                     {
@@ -1955,6 +1967,7 @@ public class OrderManager : MonoBehaviour
                         Serve("Chocolate",  cupController.Chocolate  > 0.01f, askedF.Contains(Fillings.Chocolate));
                         Serve("Tea",        cupController.Tea        > 0.01f, askedF.Contains(Fillings.Tea));
                         Serve("Milk",       cupController.Milk       > 0.01f, askedF.Contains(Fillings.Milk));
+                        Serve("BreastMilk", cupController.BreastMilk > 0.01f, askedF.Contains(Fillings.BreastMilk));
                         Serve("Cream",      cupController.Cream      > 0.01f, askedF.Contains(Fillings.Cream));
                         Serve("Sugar",      cupController.Sugar      > 0.01f, askedF.Contains(Fillings.Sugar));
 

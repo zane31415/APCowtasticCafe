@@ -188,6 +188,12 @@ public class ButtonUpgrade : MonoBehaviour
         ShopSlotIndex = slotIndex;
         MaxUpgrades   = 0; // unlimited; the shop branch governs availability
 
+        // The hover tooltip describes the old upgrade's mechanics, which no
+        // longer exist in the rando. Disable any tooltip triggers on this
+        // converted button so nothing shows on hover.
+        foreach (var tip in GetComponentsInChildren<TooltipTrigger>(true))
+            tip.enabled = false;
+
         // The localized title is the label we want to own. Disable each
         // localizer under this button and capture the TMP it drove (which is
         // not the price text). The price text has no localizer, so it's safe.
