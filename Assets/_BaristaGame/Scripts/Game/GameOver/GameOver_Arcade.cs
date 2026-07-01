@@ -102,6 +102,11 @@ public class GameOver_Arcade : MonoBehaviour
         gameMode.TargetBustSize = 0;
         baristaTalkManager.DoBaristaEventBadEnd();
         KeyBindingManager.instance.Paused();
+
+        // DeathLink: a game over always sends a death (ignores the drink quality
+        // gate), unless it was just caused by a received DeathLink.
+        if (RandomizerManager.Instance != null)
+            RandomizerManager.Instance.SendGameOverDeathLink("The cafe closed down");
     }
 
     public void StartGameoverFloodSequence()
@@ -113,5 +118,9 @@ public class GameOver_Arcade : MonoBehaviour
         KeyBindingManager.instance.Paused();
 
         Archievements.UnlockArchievement(Archievements.ArchievementID.Make_Waves);
+
+        // DeathLink: drowning the cafe in milk is also a game over.
+        if (RandomizerManager.Instance != null)
+            RandomizerManager.Instance.SendGameOverDeathLink("The cafe flooded with milk");
     }
 }

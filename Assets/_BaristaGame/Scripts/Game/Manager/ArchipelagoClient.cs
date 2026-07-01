@@ -35,6 +35,8 @@ public class ArchipelagoClient : MonoBehaviour
     private bool         _slotDataPending;
     private int          _sdDrinks, _sdChecks, _sdShop, _sdBasePrice = 50, _sdPriceStep = 25;
     private int          _sdMinDrinkQuality = 2, _sdDeathLink = 0, _sdDeathLinkSendQuality = 3, _sdDeathLinkPenalty = 20;
+    private int          _sdCensorship = 0;
+    private int          _sdAllowMilkRate = 0;
     private List<string> _sdLocNames = new List<string>();
     private List<string> _sdLocItems = new List<string>();
     private List<long>   _sdLocLocal = new List<long>();
@@ -103,6 +105,13 @@ public class ArchipelagoClient : MonoBehaviour
         // Cosmetics — MUST stay in the same order as items.py COSMETICS.
         foreach (var cos in CosmeticOrder)
             ItemIdToName[id++] = cos;
+
+        // Censored aliases at base+50 (mirror items.py _CENSOR_ITEM_BASE):
+        // Supply Rate Increase, then censored cosmetics in COSMETICS order.
+        long cid = 771771050L;
+        ItemIdToName[cid++] = CensoredMilkFlow;
+        foreach (var cos in CosmeticOrder)
+            ItemIdToName[cid++] = CensoredCosmeticName(cos);
     }
 
     // Cosmetic display name -> in-game PermanentUnlock UnlockId.
@@ -137,11 +146,43 @@ public class ArchipelagoClient : MonoBehaviour
     }
 
     // ---------------------------------------------------------------------------
+    // Censorship mode (slot-data option). Purely a display rename — censored
+    // names mirror items.py exactly and have their OWN item/location IDs so a
+    // per-slot toggle never disturbs real IDs. See CLAUDE.md "Censorship mode".
+    // ---------------------------------------------------------------------------
+    public const string CensoredMilkFlow = "Supply Rate Increase";
+
+    // Garment split for cosmetic censoring (mirrors items._CENSOR_TOPS/PANTS):
+    // 3 tops, 3 pants, the rest (milks) extra — numbered within category in
+    // Cosmetics order.
+    private static readonly string[] _censorTops  = { "Barista Bikini", "Top Only", "No Apron" };
+    private static readonly string[] _censorPants = { "Poofy Pants", "Underwear", "No Pants" };
+    private static readonly Dictionary<string, string> _censoredCosmetic = BuildCensoredCosmetics();
+    private static Dictionary<string, string> BuildCensoredCosmetics()
+    {
+        var map = new Dictionary<string, string>();
+        int t = 0, p = 0, e = 0;
+        foreach (var c in Cosmetics)
+        {
+            if (Array.IndexOf(_censorTops, c.Name) >= 0)       map[c.Name] = $"Cosmetic Top #{++t}";
+            else if (Array.IndexOf(_censorPants, c.Name) >= 0) map[c.Name] = $"Cosmetic Pants #{++p}";
+            else                                               map[c.Name] = $"Cosmetic Extra #{++e}";
+        }
+        return map;
+    }
+
+    /// <summary>Real cosmetic name -> censored label (mirrors items.CENSORED_COSMETIC).</summary>
+    public static string CensoredCosmeticName(string realName) =>
+        _censoredCosmetic.TryGetValue(realName, out string c) ? c : realName;
+
+    // ---------------------------------------------------------------------------
     // Location name → ID  (mirrors locations.py formula)
     // ---------------------------------------------------------------------------
     private const long LocationBase       = 771771100L;
     private const int  MaxChecksPerIngred = 10;
     private const long ShopLocationBase   = 771771300L;
+    // Censored Breast Milk serve locations (mirror locations._CENSOR_SERVE_BASE).
+    public const long  CensoredServeBase  = 771771400L;
 
     private static long LocationNameToId(string locationName)
     {
@@ -150,6 +191,15 @@ public class ArchipelagoClient : MonoBehaviour
         {
             if (int.TryParse(locationName.Substring("Shop Slot #".Length), out int slot))
                 return ShopLocationBase + (slot - 1);
+            return -1;
+        }
+
+        // Censored Breast Milk serve: "Serve Secret Ingredient #{n}". Checked
+        // before the generic "Serve " branch since it also starts with "Serve ".
+        if (locationName.StartsWith("Serve Secret Ingredient #"))
+        {
+            if (int.TryParse(locationName.Substring("Serve Secret Ingredient #".Length), out int n))
+                return CensoredServeBase + (n - 1);
             return -1;
         }
 
@@ -204,6 +254,7 @@ public class ArchipelagoClient : MonoBehaviour
         {
             Randomizer.ApplySlotData(_sdDrinks, _sdChecks, _sdShop, _sdBasePrice, _sdPriceStep,
                                      _sdMinDrinkQuality, _sdDeathLink != 0, _sdDeathLinkSendQuality, _sdDeathLinkPenalty,
+                                     _sdCensorship != 0, _sdAllowMilkRate != 0,
                                      _sdLocNames, _sdLocItems, _sdLocLocal);
             _slotDataPending = false;
         }
@@ -329,7 +380,9 @@ public class ArchipelagoClient : MonoBehaviour
             Debug.Log("[AP] RoomInfo received");
         if (msg.Contains("\"cmd\":\"PrintJSON\""))
             Debug.Log($"[AP] Server: {Truncate(msg, 300)}");
-        if (msg.Contains("\"cmd\":\"Bounce\""))
+        // The server broadcasts "Bounced" (past tense) to notify recipients of a
+        // received Bounce; "Bounce" is only ever what WE send to trigger one.
+        if (msg.Contains("\"cmd\":\"Bounced\""))
             HandleBounce(msg);
     }
 
@@ -362,6 +415,8 @@ public class ArchipelagoClient : MonoBehaviour
         _sdDeathLink            = ExtractInt(msg, "death_link",               0);
         _sdDeathLinkSendQuality = ExtractInt(msg, "death_link_send_quality",  3);
         _sdDeathLinkPenalty     = ExtractInt(msg, "death_link_penalty",       20);
+        _sdCensorship           = ExtractInt(msg, "censorship_mode",          0);
+        _sdAllowMilkRate        = ExtractInt(msg, "allow_milk_rate_adjustment", 0);
 
         // If DeathLink is enabled, update our tags so the server routes bounces to us.
         if (_sdDeathLink != 0)
@@ -546,13 +601,18 @@ public class ArchipelagoClient : MonoBehaviour
     /// been sent for <paramref name="ingredient"/>, starting from check #1.
     /// If #1 and #2 are sent but #3 is not, returns 2 even if later ones are sent.
     /// </summary>
-    public int GetConsecutiveServeSent(string ingredient, int totalChecks)
+    public int GetConsecutiveServeSent(string ingredient, int totalChecks, bool censored = false)
     {
-        int ingIdx = Array.IndexOf(ServeIngredientOrder, ingredient);
+        // Under censorship, Breast Milk serve checks were sent under the censored
+        // ID block, so restore from those IDs instead of the normal serve IDs.
+        bool useCensored = censored && ingredient == "BreastMilk";
+        int ingIdx = useCensored ? 0 : Array.IndexOf(ServeIngredientOrder, ingredient);
         if (ingIdx < 0) return 0;
         for (int n = 1; n <= totalChecks; n++)
         {
-            long id = LocationBase + ingIdx * MaxChecksPerIngred + (n - 1);
+            long id = useCensored
+                ? CensoredServeBase + (n - 1)
+                : LocationBase + ingIdx * MaxChecksPerIngred + (n - 1);
             if (!_checkedLocations.Contains(id)) return n - 1;
         }
         return totalChecks;
@@ -562,6 +622,7 @@ public class ArchipelagoClient : MonoBehaviour
     {
         rm.ApplySlotData(_sdDrinks, _sdChecks, _sdShop, _sdBasePrice, _sdPriceStep,
                          _sdMinDrinkQuality, _sdDeathLink != 0, _sdDeathLinkSendQuality, _sdDeathLinkPenalty,
+                         _sdCensorship != 0, _sdAllowMilkRate != 0,
                          _sdLocNames, _sdLocItems, _sdLocLocal);
         foreach (string item in _allItems)
             rm.RequeueItem(item);
@@ -589,7 +650,17 @@ public class ArchipelagoClient : MonoBehaviour
     private void HandleBounce(string msg)
     {
         if (!msg.Contains("\"DeathLink\"")) return;
-        Debug.Log("[AP] DeathLink received");
+
+        // The server broadcasts our OWN Bounce back to us; ignore self-sourced
+        // deaths so serving a bad drink doesn't kill the barista who made it.
+        string source = ExtractString(msg, "source");
+        if (!string.IsNullOrEmpty(source) && source == SlotName)
+        {
+            Debug.Log($"[AP] Ignoring own DeathLink echo (source '{source}')");
+            return;
+        }
+
+        Debug.Log($"[AP] DeathLink received (source '{source}')");
         if (Randomizer != null)
             Randomizer.ReceiveDeathLink();
     }
@@ -597,6 +668,25 @@ public class ArchipelagoClient : MonoBehaviour
     // ---------------------------------------------------------------------------
     // Helpers
     // ---------------------------------------------------------------------------
+
+    /// <summary>Extracts a single JSON string value like "source":"BroneyCow".</summary>
+    private static string ExtractString(string json, string key)
+    {
+        string search = $"\"{key}\":\"";
+        int idx = json.IndexOf(search, StringComparison.Ordinal);
+        if (idx < 0) return null;
+        int i = idx + search.Length;
+        var sb = new StringBuilder();
+        while (i < json.Length)
+        {
+            char c = json[i];
+            if (c == '\\' && i + 1 < json.Length) { sb.Append(json[i + 1]); i += 2; continue; }
+            if (c == '"') break;
+            sb.Append(c);
+            i++;
+        }
+        return sb.ToString();
+    }
 
     private static int ExtractInt(string json, string key, int fallback)
     {

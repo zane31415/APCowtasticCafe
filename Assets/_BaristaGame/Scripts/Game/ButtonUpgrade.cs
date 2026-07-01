@@ -16,6 +16,11 @@ public class ButtonUpgrade : MonoBehaviour
     // Other text on the button that we keep blanked (old subtitle, etc.).
     private List<TMP_Text> shopBlankTexts = new List<TMP_Text>();
 
+    // Milk-rate control mode (AllowMilkRateAdjustment): this button adjusts the
+    // milk production rate up/down for free instead of being a shop slot.
+    private bool _milkRateMode = false;
+    private bool _milkRateUp   = false;
+
     [Header("Settings")]
 
     public float CostInitial = 10;
@@ -136,6 +141,12 @@ public class ButtonUpgrade : MonoBehaviour
 
     public void UpdateVisuals()
     {
+        if (_milkRateMode)
+        {
+            UpdateMilkRateVisuals();
+            return;
+        }
+
         if (TypeOfUpgrade == UpgradeType.ShopLocation)
         {
             UpdateShopVisuals();
@@ -261,6 +272,71 @@ public class ButtonUpgrade : MonoBehaviour
         button.interactable = currentCost <= gamemode.Money;
     }
 
+    /// <summary>
+    /// Turns this button into a free milk-rate control (up or down). Disables
+    /// localizers/tooltips, sets the title ("Milk rate up/down") and a bold
+    /// "+"/"-" subtitle, and hides the price. Availability (gray-out) is driven
+    /// by RandomizerManager's rate cap in UpdateMilkRateVisuals.
+    /// </summary>
+    public void ConfigureAsMilkRate(bool isUp)
+    {
+        _milkRateMode = true;
+        _milkRateUp   = isUp;
+        MaxUpgrades   = 0;
+
+        foreach (var tip in GetComponentsInChildren<TooltipTrigger>(true))
+            tip.enabled = false;
+
+        // Title = the localized text TMP (not the price). Disable localizers so
+        // they don't overwrite what we set.
+        TMP_Text title = null;
+        foreach (var loc in GetComponentsInChildren<LocalizeStringEvent>(true))
+        {
+            loc.enabled = false;
+            var t = loc.GetComponent<TMP_Text>();
+            if (t == null) t = loc.GetComponentInChildren<TMP_Text>(true);
+            if (t != null && t != MoneyText) title = t;
+        }
+        if (title == null)
+        {
+            foreach (var t in GetComponentsInChildren<TMP_Text>(true))
+                if (t != MoneyText) { title = t; break; }
+        }
+
+        // Subtitle = first remaining non-price, non-title text (the old "+"/"-").
+        TMP_Text subtitle = null;
+        foreach (var t in GetComponentsInChildren<TMP_Text>(true))
+        {
+            var loc = t.GetComponent<LocalizeStringEvent>();
+            if (loc != null) loc.enabled = false;
+            if (t == MoneyText || t == title) continue;
+            subtitle = t;
+            break;
+        }
+
+        if (title != null) title.text = isUp ? "Milk rate up" : "Milk rate down";
+        if (subtitle != null)
+        {
+            subtitle.fontStyle |= FontStyles.Bold;
+            subtitle.text = isUp ? "+" : "-";
+        }
+        if (MoneyText != null) MoneyText.text = "";
+    }
+
+    private void UpdateMilkRateVisuals()
+    {
+        if (button == null) UpdateReferences();
+        if (button == null) return;
+
+        var rm = RandomizerManager.Instance;
+        bool can = rm != null && (_milkRateUp ? rm.CanIncreaseFlow() : rm.CanDecreaseFlow());
+
+        // interactable=false uses the Button's disabled color tint, i.e. grays
+        // out at the cap (up) or the 1-step minimum (down).
+        button.interactable = can;
+        if (MoneyText != null) MoneyText.text = "";
+    }
+
     private void CalcCurrentCost()
     {
         if (TypeOfUpgrade == UpgradeType.ShopLocation)
@@ -295,6 +371,19 @@ public class ButtonUpgrade : MonoBehaviour
 
     private void DoUpgrade()
     {
+        // Milk-rate buttons are free, capped controls — bypass the cost/upgrade
+        // machinery entirely.
+        if (_milkRateMode)
+        {
+            var rmRate = RandomizerManager.Instance;
+            if (rmRate != null)
+            {
+                if (_milkRateUp) rmRate.IncreaseMilkRate();
+                else             rmRate.DecreaseMilkRate();
+            }
+            return;
+        }
+
         RandomizerManager.Instance.AddRecentEvent($"Button Upgrade: {TypeOfUpgrade}");
         CalcCurrentCost();
 

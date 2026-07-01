@@ -1895,11 +1895,16 @@ public class OrderManager : MonoBehaviour
 
             Rating ratingClass = CalcOrderRating(rating);
 
+            // Diagnostic (Player.log only): dump asked-vs-delivered + the
+            // accuracy/rating/isFail so drink ratings can be checked after the fact.
+            LogOrderComparison(rating, ratingClass);
+
             if (ratingClass == null)
             {
+                // Falls through to the isFail==null branch below, which handles
+                // the failure cleanup (including StartDialogueFail) uniformly -
+                // don't call it here too or it fires twice.
                 Debug.LogError("Didnt Find Rating!");
-                dialogeManager.StartDialogueFail(ActiveCustomer);
-                //return;
             }
             else
             {
@@ -1921,7 +1926,7 @@ public class OrderManager : MonoBehaviour
                     RandomizerManager.Instance.SendDeathLink($"A {ratingClass.Name} drink from the cafe");
             }
 
-            if (ratingClass.isFail == false) //rating > 0.1f ||
+            if (ratingClass != null && ratingClass.isFail == false) //rating > 0.1f ||
             {
                 //Calc Money
                 float moneyMultipler = ratingClass.MoneyMultipler;
@@ -1967,7 +1972,15 @@ public class OrderManager : MonoBehaviour
                         Serve("Chocolate",  cupController.Chocolate  > 0.01f, askedF.Contains(Fillings.Chocolate));
                         Serve("Tea",        cupController.Tea        > 0.01f, askedF.Contains(Fillings.Tea));
                         Serve("Milk",       cupController.Milk       > 0.01f, askedF.Contains(Fillings.Milk));
-                        Serve("BreastMilk", cupController.BreastMilk > 0.01f, askedF.Contains(Fillings.BreastMilk));
+                        // Breast Milk is added via fluster-level substitution (see
+                        // IncreaseOneWantedBreastMilkActiveCustomer/OverrideMilkFillingLogic),
+                        // which pulls from whichever ordered filling has room - not
+                        // preferentially Milk - so it can rightfully appear even when the
+                        // customer didn't literally ask for "BreastMilk". Count it as
+                        // asked-for if they wanted Breast Milk directly OR at least Milk
+                        // (the substitution's spiritual source ingredient).
+                        bool askedBreastMilk = askedF.Contains(Fillings.BreastMilk) || askedF.Contains(Fillings.Milk);
+                        Serve("BreastMilk", cupController.BreastMilk > 0.01f, askedBreastMilk);
                         Serve("Cream",      cupController.Cream      > 0.01f, askedF.Contains(Fillings.Cream));
                         Serve("Sugar",      cupController.Sugar      > 0.01f, askedF.Contains(Fillings.Sugar));
 
@@ -2333,6 +2346,71 @@ public class OrderManager : MonoBehaviour
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Diagnostic only (writes to Player.log, no gameplay effect): logs what the
+    /// customer asked for (target recipe = ActiveIngreedentPercentages, which
+    /// already includes any fluster-substituted Breast Milk) versus what was in
+    /// the cup, plus the resulting accuracy, rating tier, isFail flag, and the
+    /// accuracy needed to reach the next tier up. Lets us verify borderline
+    /// ratings and fail behavior from the log.
+    /// </summary>
+    private void LogOrderComparison(float accuracy, Rating ratingClass)
+    {
+        if (ActiveCustomer == null || cupController == null) return;
+        if (ActiveIngreedentPercentages == null || ActiveIngreedentPercentages.Count < 14) return;
+
+        // Fillings: index 0-6 are the poured fillings, 13 is Breast Milk.
+        string[] fillLabels = { "Chocolate", "Milk", "Tea", "Cream", "Espresso", "Sugar", "Coffee" };
+        float[] cupFill = {
+            cupController.Chocolate, cupController.Milk, cupController.Tea, cupController.Cream,
+            cupController.Espresso, cupController.Sugar, cupController.Coffee
+        };
+
+        var asked = new StringBuilder();
+        var got   = new StringBuilder();
+        for (int i = 0; i < fillLabels.Length; i++)
+        {
+            if (ActiveIngreedentPercentages[i] > 0.5f) asked.Append($"{fillLabels[i]}={ActiveIngreedentPercentages[i]:0}% ");
+            if (cupFill[i] * 100f > 0.5f)              got.Append($"{fillLabels[i]}={cupFill[i] * 100f:0}% ");
+        }
+        if (ActiveIngreedentPercentages[13] > 0.5f)   asked.Append($"BreastMilk={ActiveIngreedentPercentages[13]:0}% ");
+        if (cupController.BreastMilk * 100f > 0.5f)    got.Append($"BreastMilk={cupController.BreastMilk * 100f:0}% ");
+
+        // Toppings: asked from the customer's order, delivered from the cup flags.
+        var askedTop = new HashSet<Toppings>(ActiveCustomer.Toppings ?? new Toppings[0]);
+        void Top(string label, Toppings t, bool inCup)
+        {
+            if (askedTop.Contains(t)) asked.Append($"+{label} ");
+            if (inCup)                got.Append($"+{label} ");
+        }
+        Top("Ice",            Toppings.Ice,            cupController.Ice);
+        Top("Boba",           Toppings.Boba,           cupController.Boba);
+        Top("WhippedCream",   Toppings.WhipedCream,    cupController.WhippedCream);
+        Top("ChocolateSauce", Toppings.ChocolateSauce, cupController.ChocolateSauce);
+        Top("CaramelSauce",   Toppings.CaramelSauce,   cupController.CaramelSauce);
+        Top("Sprinkles",      Toppings.Sprinkles,      cupController.Sprinkles);
+
+        // Rating + threshold context. Ratings run best->worst with descending
+        // MinValue, so the next tier up is the previous array entry.
+        string ratingInfo;
+        if (ratingClass == null)
+        {
+            ratingInfo = "rating=NONE (no threshold matched)";
+        }
+        else
+        {
+            int idx = System.Array.IndexOf(Ratings, ratingClass);
+            string next = (idx > 0)
+                ? $" | next '{Ratings[idx - 1].Name}' needs accuracy >= {Ratings[idx - 1].MinValue:0.000}"
+                : "";
+            ratingInfo = $"rating={ratingClass.Name} (isFail={ratingClass.isFail}, happyΔ={ratingClass.HappynessChange:+0.###;-0.###;0}, min {ratingClass.MinValue:0.000}){next}";
+        }
+
+        Debug.Log($"[OrderCheck] asked:     {asked.ToString().TrimEnd()}");
+        Debug.Log($"[OrderCheck] delivered: {got.ToString().TrimEnd()}");
+        Debug.Log($"[OrderCheck] fullness={cupController.Fullness * 100f:0}% accuracy={accuracy:0.000} {ratingInfo}");
     }
 
     [BurstCompile]

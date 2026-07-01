@@ -52,6 +52,8 @@ class CowtasticWorld(World):
             "death_link":            int(self.options.death_link.value),
             "death_link_send_quality": self.options.death_link_send_quality.value,
             "death_link_penalty":    self.options.death_link_penalty.value,
+            "censorship_mode":       int(self.options.censorship_mode.value),
+            "allow_milk_rate_adjustment": int(self.options.allow_milk_rate_adjustment.value),
             # Parallel arrays describing what each real location will hand out.
             # The client uses these to label shop buttons and to announce
             # "X sent!" (remote) / "X unlocked!" (local) via the barista.

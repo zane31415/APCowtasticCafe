@@ -20,6 +20,11 @@ _MAX_CHECKS = 10
 _SHOP_BASE = 771771300
 _MAX_SHOP = 50
 
+# Censored Breast Milk serve locations get their own stable ID block so the
+# per-slot censorship option can pick either name set without shifting real
+# location IDs. The client mirrors this base (ArchipelagoClient.CensoredServeBase).
+_CENSOR_SERVE_BASE = 771771400
+
 
 def _loc_id(ingredient_index: int, check_index: int) -> int:
     return _BASE + ingredient_index * _MAX_CHECKS + check_index
@@ -29,6 +34,11 @@ def location_name(ingredient_display: str, check_number: int) -> str:
     """Stable AP location name, e.g. 'Serve Whipped Cream #2'.
     Takes the ingredient's DISPLAY name (see items.display_name)."""
     return f"Serve {ingredient_display} #{check_number}"
+
+
+def censored_serve_name(check_number: int) -> str:
+    """Censored Breast Milk serve location name, e.g. 'Serve Secret Ingredient #2'."""
+    return f"Serve Secret Ingredient #{check_number}"
 
 
 def shop_location_name(slot_number: int) -> str:
@@ -61,6 +71,12 @@ LOCATION_NAME_TO_ID.update({
     shop_location_name(n + 1): _SHOP_BASE + n
     for n in range(_MAX_SHOP)
 })
+# Censored Breast Milk serve aliases (always registered; only created when the
+# slot enables censorship).
+LOCATION_NAME_TO_ID.update({
+    censored_serve_name(c + 1): _CENSOR_SERVE_BASE + c
+    for c in range(_MAX_CHECKS)
+})
 
 
 class CowtasticLocation(Location):
@@ -70,11 +86,17 @@ class CowtasticLocation(Location):
 def create_all_locations(world: CowtasticWorld) -> None:
     cafe = world.get_region("Cafe")
     checks = world.options.checks_per_ingredient.value
+    censored = bool(world.options.censorship_mode.value)
 
     for i, ing in enumerate(SERVE_INGREDIENTS):
         for c in range(checks):
-            name = location_name(display_name(ing), c + 1)
-            loc = CowtasticLocation(world.player, name, _loc_id(i, c), cafe)
+            if censored and ing == "BreastMilk":
+                name = censored_serve_name(c + 1)
+                addr = _CENSOR_SERVE_BASE + c
+            else:
+                name = location_name(display_name(ing), c + 1)
+                addr = _loc_id(i, c)
+            loc = CowtasticLocation(world.player, name, addr, cafe)
             cafe.locations.append(loc)
 
     # Shop locations — always accessible (no unlock required).

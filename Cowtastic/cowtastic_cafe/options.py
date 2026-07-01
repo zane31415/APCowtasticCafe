@@ -2,6 +2,18 @@ from dataclasses import dataclass
 from Options import Range, Choice, Toggle, DeathLink, PerGameCommonOptions
 
 
+class CensorshipMode(Toggle):
+    """Hide the mod's lewd item/location names from the multiworld. Purely a
+    naming/display change — there is NO effect on gameplay, logic, IDs, or which
+    items go where. When on:
+      - 'Serve Breast Milk #n' locations become 'Serve Secret Ingredient #n'
+      - cosmetics become 'Cosmetic Top/Pants/Extra #n'
+      - the 'Milk Flow Increase' item becomes 'Supply Rate Increase'
+    Per-slot: only your slot's names are censored in the spoiler/trackers; other
+    players' Cowtastic slots are unaffected by your setting."""
+    display_name = "Censorship Mode"
+
+
 class DrinksPerCheck(Range):
     """How many drinks with each ingredient you must serve to earn one check.
     Example: with 3 drinks per check and 3 checks per ingredient,
@@ -117,6 +129,18 @@ class ShopPriceStep(Range):
     default = 25
 
 
+class AllowMilkRateAdjustment(Toggle):
+    """Let the player manually control the milk production rate. When on, the two
+    left-hand shop buttons return to being milk-rate up/down controls (free to
+    use, in 5 ml steps); the other four buttons remain randomizer shop slots.
+    The rate floor stays at 1 step (5 ml); the ceiling is (items received + 1)
+    steps, so each 'Milk Flow Increase' item both raises the cap AND bumps the
+    current rate up one notch (the first item already grants headroom above the
+    floor). Purely a client-side control change; no effect on generation,
+    logic, or item placement."""
+    display_name = "Allow Milk Rate Adjustment"
+
+
 @dataclass
 class CowtasticOptions(PerGameCommonOptions):
     drinks_per_check: DrinksPerCheck
@@ -130,3 +154,5 @@ class CowtasticOptions(PerGameCommonOptions):
     death_link: DeathLink
     death_link_send_quality: DeathLinkSendQuality
     death_link_penalty: DeathLinkPenalty
+    censorship_mode: CensorshipMode
+    allow_milk_rate_adjustment: AllowMilkRateAdjustment

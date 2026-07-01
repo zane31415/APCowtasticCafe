@@ -55,13 +55,32 @@ public class RandomizerManager : MonoBehaviour
     public int  DeathLinkSendQuality  = 3;  // rating index at or above which we send death
     public int  DeathLinkPenalty      = 20; // happiness lost on receiving deathlink
 
+    // When a DeathLink was last received (unscaled time). Used so a game over
+    // caused by the received death's happiness penalty doesn't echo a death back.
+    private float _lastDeathLinkReceivedTime = -999f;
+    private const float DeathLinkGameOverGrace = 10f;
+
+    // Censorship mode (from slot data): purely renames AP-facing item/location
+    // names; no gameplay effect. Affects Breast Milk serve location names and
+    // the names shown in barista announcements for received items.
+    public bool Censorship = false;
+
     // Goal is the in-game "barista overflows" good end (see GameWinManager),
     // not a candy count. RequiredCandy is just informational for the overlay.
     public const int RequiredCandy = 19;
     public int MilkCapacityCount = 0;
 
-    // How much each "Milk Flow Increase" raises the production rate.
+    // How much each "Milk Flow Increase" raises the production rate (one "step").
     public const int MilkFlowIncrement = 5;
+
+    // Milk-rate adjustment (from slot data). When on, the two Production buttons
+    // become free milk-rate up/down controls instead of shop slots, and Milk
+    // Flow Increase items raise the rate CAP rather than auto-bumping the rate.
+    public bool AllowMilkRateAdjustment = false;
+    // Count of "Milk Flow Increase" items received this run. Drives the rate cap
+    // when AllowMilkRateAdjustment is on (cap = (this + 1) x 5 ml steps, so the
+    // first item already grants headroom above the floor).
+    public int MilkFlowReceived = 0;
 
     // Cosmetic AP item name -> PermanentUnlock UnlockId, built from slot data.
     private Dictionary<string, string> _cosmeticToUnlockId = new Dictionary<string, string>();
@@ -99,6 +118,7 @@ public class RandomizerManager : MonoBehaviour
         _gameReady = false;
         _gameMode  = null;
         MilkCapacityCount = 0;
+        MilkFlowReceived  = 0;
         IngredientServeCounts.Clear();
         _pendingItems.Clear();
         _announceQueue.Clear();
@@ -113,7 +133,7 @@ public class RandomizerManager : MonoBehaviour
         {
             foreach (string ing in ArchipelagoClient.ServeIngredientOrder)
             {
-                int consecutive = apClient.GetConsecutiveServeSent(ing, NumberOfChecks);
+                int consecutive = apClient.GetConsecutiveServeSent(ing, NumberOfChecks, Censorship);
                 if (consecutive > 0)
                     IngredientServeCounts[ing] = consecutive * DrinksPerCheck;
             }
@@ -174,6 +194,15 @@ public class RandomizerManager : MonoBehaviour
         ConvertShopButtons();
         DisableCosmeticShop();
 
+        // With manual milk-rate control, start each run at the 1-step floor;
+        // the pending items below (including any Milk Flow Increases) raise the
+        // cap and bump the current rate to match as they're applied.
+        if (AllowMilkRateAdjustment)
+        {
+            _gameMode.ProductionRate = MilkFlowIncrement;
+            RefreshMilkRateCap();
+        }
+
         foreach (string item in _pendingItems)
             ApplyItem(item);
         _pendingItems.Clear();
@@ -188,7 +217,12 @@ public class RandomizerManager : MonoBehaviour
     {
         _cosmeticToUnlockId.Clear();
         foreach (var c in ArchipelagoClient.Cosmetics)
+        {
             _cosmeticToUnlockId[c.Name] = c.UnlockId;
+            // Censored alias maps to the same in-game unlock, so a censored slot's
+            // cosmetic items still equip the correct cosmetic.
+            _cosmeticToUnlockId[ArchipelagoClient.CensoredCosmeticName(c.Name)] = c.UnlockId;
+        }
 
         // For the rando, cosmetics start LOCKED (override any saved PlayerPrefs)
         // and can't be bought — they only come from the multiworld.
@@ -226,11 +260,34 @@ public class RandomizerManager : MonoBehaviour
 
         // Skip the InitialUpgrade ("secret candy") button; convert the rest.
         // Order by name so slot assignment is deterministic across runs.
-        var shopButtons = new List<ButtonUpgrade>();
+        var candidates = new List<ButtonUpgrade>();
         foreach (var b in buttons)
             if (b.TypeOfUpgrade != ButtonUpgrade.UpgradeType.InitialUpgarde)
-                shopButtons.Add(b);
-        shopButtons.Sort((a, b) => string.CompareOrdinal(a.name, b.name));
+                candidates.Add(b);
+        candidates.Sort((a, b) => string.CompareOrdinal(a.name, b.name));
+
+        var shopButtons = new List<ButtonUpgrade>();
+        if (AllowMilkRateAdjustment)
+        {
+            // Restore the two Production buttons (up = UpgradeTimes>0, down = <0)
+            // as milk-rate controls; the remaining four become shop slots.
+            ButtonUpgrade up = null, down = null;
+            foreach (var b in candidates)
+            {
+                if (b.TypeOfUpgrade == ButtonUpgrade.UpgradeType.Production)
+                {
+                    if (b.UpgradeTimes > 0) up = b; else down = b;
+                }
+                else shopButtons.Add(b);
+            }
+            up?.ConfigureAsMilkRate(true);
+            down?.ConfigureAsMilkRate(false);
+            AddRecentEvent($"Milk-rate adjustment on: {(up != null ? 1 : 0) + (down != null ? 1 : 0)} rate buttons");
+        }
+        else
+        {
+            shopButtons = candidates;
+        }
 
         for (int i = 0; i < shopButtons.Count; i++)
         {
@@ -296,12 +353,26 @@ public class RandomizerManager : MonoBehaviour
         {
             _gameMode.BuyHappyness(1);
         }
-        else if (itemId == "Milk Flow Increase")
+        else if (itemId == "Milk Flow Increase" || itemId == ArchipelagoClient.CensoredMilkFlow)
         {
-            // Raise the ceiling, then actually bump the production rate (which is
-            // clamped to MaxProductionRate inside BuyUpgradeProduction).
-            _gameMode.MaxProductionRate += MilkFlowIncrement;
-            _gameMode.BuyUpgradeProduction(MilkFlowIncrement);
+            // (Censored slots receive this as "Supply Rate Increase".)
+            MilkFlowReceived++;
+            if (AllowMilkRateAdjustment)
+            {
+                // Manual control: raise the cap, then bump the current rate up one
+                // notch to match (mirrors the always-auto-bump behavior below) —
+                // via IncreaseMilkRate() so it's clamped and can never exceed the
+                // cap we just raised.
+                RefreshMilkRateCap();
+                IncreaseMilkRate();
+            }
+            else
+            {
+                // Raise the ceiling, then actually bump the production rate (which
+                // is clamped to MaxProductionRate inside BuyUpgradeProduction).
+                _gameMode.MaxProductionRate += MilkFlowIncrement;
+                _gameMode.BuyUpgradeProduction(MilkFlowIncrement);
+            }
         }
         else if (_cosmeticToUnlockId.ContainsKey(itemId))
         {
@@ -371,6 +442,7 @@ public class RandomizerManager : MonoBehaviour
     /// <summary>Called by ArchipelagoClient when a DeathLink bounce is received.</summary>
     public void ReceiveDeathLink()
     {
+        _lastDeathLinkReceivedTime = Time.unscaledTime;
         AddRecentEvent($"DeathLink received! -{DeathLinkPenalty} happiness");
         if (_gameMode != null && DeathLinkPenalty > 0)
             _gameMode.ChangeHappyness(-DeathLinkPenalty);
@@ -379,6 +451,22 @@ public class RandomizerManager : MonoBehaviour
     /// <summary>Called by OrderManager when a sufficiently bad drink is served with DeathLink on.</summary>
     public void SendDeathLink(string cause)
     {
+        _archipelagoClient?.SendDeathLink(cause);
+    }
+
+    /// <summary>
+    /// Called by the game-over sequence. With DeathLink on, a game over ALWAYS
+    /// sends a death (no quality gate) — except when it was almost certainly
+    /// caused by a recently-received DeathLink, to avoid echoing it back.
+    /// </summary>
+    public void SendGameOverDeathLink(string cause)
+    {
+        if (!DeathLinkEnabled) return;
+        if (Time.unscaledTime - _lastDeathLinkReceivedTime < DeathLinkGameOverGrace)
+        {
+            AddRecentEvent("Game-over DeathLink suppressed (recent received DeathLink)");
+            return;
+        }
         _archipelagoClient?.SendDeathLink(cause);
     }
 
@@ -444,10 +532,13 @@ public class RandomizerManager : MonoBehaviour
             int checkNumber = count / DrinksPerCheck;
             if (checkNumber <= NumberOfChecks)
             {
-                // Location name must match the apworld's location_name() format,
-                // which uses the ingredient's display name (e.g. "Whipped Cream").
-                string display = ArchipelagoClient.DisplayIngredient(ingredientName);
-                HandleLocation($"Serve {display} #{checkNumber}");
+                // Location name must match the apworld's location name format. With
+                // censorship on, Breast Milk uses the censored alias; everything
+                // else uses the ingredient display name (e.g. "Whipped Cream").
+                string locName = (Censorship && ingredientName == "BreastMilk")
+                    ? $"Serve Secret Ingredient #{checkNumber}"
+                    : $"Serve {ArchipelagoClient.DisplayIngredient(ingredientName)} #{checkNumber}";
+                HandleLocation(locName);
             }
         }
     }
@@ -458,6 +549,7 @@ public class RandomizerManager : MonoBehaviour
     public void ApplySlotData(int drinksPerCheck, int checksPerIngredient, int shopLocations,
                               int shopBasePrice, int shopPriceStep,
                               int minDrinkQuality, bool deathLink, int deathLinkSendQuality, int deathLinkPenalty,
+                              bool censorship, bool allowMilkRateAdjustment,
                               List<string> locNames, List<string> locItems, List<long> locLocal)
     {
         DrinksPerCheck       = drinksPerCheck;
@@ -469,6 +561,8 @@ public class RandomizerManager : MonoBehaviour
         DeathLinkEnabled     = deathLink;
         DeathLinkSendQuality = deathLinkSendQuality;
         DeathLinkPenalty     = deathLinkPenalty;
+        Censorship           = censorship;
+        AllowMilkRateAdjustment = allowMilkRateAdjustment;
 
         _locInfo.Clear();
         if (locNames != null && locItems != null)
@@ -552,6 +646,41 @@ public class RandomizerManager : MonoBehaviour
     {
         if (_gameMode == null) return false;
         return _gameMode.ProductionRate > _gameMode.MinProductionRate;
+    }
+
+    // ---------------------------------------------------------------------------
+    // Milk-rate adjustment (AllowMilkRateAdjustment). Production floor is 1 step
+    // (5 ml); ceiling is (MilkFlowReceived + 1) steps, so the very first item
+    // already grants headroom above the floor. Buttons drive these for free.
+    // ---------------------------------------------------------------------------
+
+    /// <summary>
+    /// Sets the production-rate floor/ceiling for manual milk-rate control:
+    /// floor = 1 step (5 ml), ceiling = (MilkFlowReceived + 1) steps. Clamps
+    /// the current rate into range. Safe to call repeatedly as items arrive.
+    /// </summary>
+    public void RefreshMilkRateCap()
+    {
+        if (_gameMode == null || !AllowMilkRateAdjustment) return;
+        double cap = (MilkFlowReceived + 1) * (double)MilkFlowIncrement;
+        _gameMode.MinProductionRate = MilkFlowIncrement;
+        _gameMode.MaxProductionRate = cap;
+        if (_gameMode.ProductionRate > cap) _gameMode.ProductionRate = cap;
+        if (_gameMode.ProductionRate < MilkFlowIncrement) _gameMode.ProductionRate = MilkFlowIncrement;
+    }
+
+    /// <summary>Raises the milk rate by one 5 ml step (free), capped. Called by the up button.</summary>
+    public void IncreaseMilkRate()
+    {
+        if (_gameMode == null || !CanIncreaseFlow()) return;
+        _gameMode.BuyUpgradeProduction(MilkFlowIncrement);
+    }
+
+    /// <summary>Lowers the milk rate by one 5 ml step (free), floored at 1 step. Called by the down button.</summary>
+    public void DecreaseMilkRate()
+    {
+        if (_gameMode == null || !CanDecreaseFlow()) return;
+        _gameMode.BuyUpgradeProduction(-MilkFlowIncrement);
     }
 
 }

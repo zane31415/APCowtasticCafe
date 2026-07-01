@@ -79,6 +79,44 @@ _COSMETIC_MILKS = [
     "Thick Milk", "Void Milk",
 ]
 
+# ---------------------------------------------------------------------------
+# Censorship mode (option). Purely a display rename — the actual cosmetics,
+# items, and logic are unchanged; only the AP-facing names differ. These
+# censored names get their OWN item IDs (registered below) so the per-slot
+# option can pick either set without disturbing a multiworld's data package.
+# The Unity client mirrors all of this (ArchipelagoClient censored tables).
+# ---------------------------------------------------------------------------
+CENSORED_MILK_FLOW = "Supply Rate Increase"  # alias for "Milk Flow Increase"
+
+# Garment split for cosmetic censoring: 3 tops, 3 pants, the rest (milks) extra.
+_CENSOR_TOPS  = ["Barista Bikini", "Top Only", "No Apron"]
+_CENSOR_PANTS = ["Poofy Pants", "Underwear", "No Pants"]
+
+
+def _build_censored_cosmetics() -> dict[str, str]:
+    """Real cosmetic name -> censored label, numbered within each category in
+    COSMETICS order (e.g. 'Barista Bikini' -> 'Cosmetic Top #1')."""
+    names: dict[str, str] = {}
+    t = p = e = 0
+    for cos in COSMETICS:
+        if cos in _CENSOR_TOPS:
+            t += 1; names[cos] = f"Cosmetic Top #{t}"
+        elif cos in _CENSOR_PANTS:
+            p += 1; names[cos] = f"Cosmetic Pants #{p}"
+        else:
+            e += 1; names[cos] = f"Cosmetic Extra #{e}"
+    return names
+
+
+CENSORED_COSMETIC = _build_censored_cosmetics()
+
+
+def censor_item_name(name: str) -> str:
+    """Map a real item name to its censored equivalent (identity if no alias)."""
+    if name == "Milk Flow Increase":
+        return CENSORED_MILK_FLOW
+    return CENSORED_COSMETIC.get(name, name)
+
 
 def _shuffled_cosmetics() -> list[str]:
     """Return all cosmetics in a randomly interleaved order, with each category
@@ -104,6 +142,7 @@ def _shuffled_cosmetics() -> list[str]:
 # ---------------------------------------------------------------------------
 # ID table — IDs must be globally unique across all apworlds.
 # Using 771771000 as the base; reserve 000–099 for items, 100+ for locations.
+# Real items occupy 000–034; censored aliases live at 050+ (see below).
 # ---------------------------------------------------------------------------
 _BASE = 771771000
 _id = _BASE
@@ -126,6 +165,17 @@ for _cos in COSMETICS:
     ITEM_NAME_TO_ID[_cos] = _id
     _id += 1
 
+# Censored aliases get their OWN stable IDs at base+50 so toggling censorship on
+# a slot never shifts real item IDs and both name sets coexist in the data
+# package. Order: Supply Rate Increase, then censored cosmetics in COSMETICS
+# order. The client mirrors this exactly (ArchipelagoClient censored ItemIdToName).
+_CENSOR_ITEM_BASE = _BASE + 50
+_cid = _CENSOR_ITEM_BASE
+ITEM_NAME_TO_ID[CENSORED_MILK_FLOW] = _cid; _cid += 1
+for _cos in COSMETICS:
+    ITEM_NAME_TO_ID[CENSORED_COSMETIC[_cos]] = _cid
+    _cid += 1
+
 ITEM_CLASSIFICATIONS: dict[str, ItemClassification] = {
     **{f"Ingredient: {display_name(ing)}": ItemClassification.progression for ing in INGREDIENTS},
     "Stretchy Candy":     ItemClassification.progression,
@@ -134,6 +184,9 @@ ITEM_CLASSIFICATIONS: dict[str, ItemClassification] = {
     "Milk Flow Increase": ItemClassification.useful,
     "Barista Smile :-)":  ItemClassification.filler,
     **{cos: ItemClassification.filler for cos in COSMETICS},
+    # Censored aliases mirror the classification of the item they rename.
+    CENSORED_MILK_FLOW:   ItemClassification.useful,
+    **{CENSORED_COSMETIC[cos]: ItemClassification.filler for cos in COSMETICS},
 }
 
 
@@ -174,8 +227,11 @@ def create_all_items(world: CowtasticWorld) -> None:
         useful_flat.extend([name] * count)
 
     fillers = useful_flat + _shuffled_cosmetics()
+    censored = bool(world.options.censorship_mode.value)
     for i in range(remaining):
         name = fillers[i] if i < len(fillers) else "Barista Smile :-)"
+        if censored:
+            name = censor_item_name(name)  # rename only; same item, same slot
         pool.append(create_item(world, name))
 
     world.multiworld.itempool += pool

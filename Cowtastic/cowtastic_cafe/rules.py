@@ -3,7 +3,7 @@ import math
 from typing import TYPE_CHECKING
 
 from .items import INGREDIENTS, REQUIRED_CANDY, STARTING_INGREDIENTS, display_name
-from .locations import location_name, shop_location_name
+from .locations import location_name, shop_location_name, censored_serve_name
 
 if TYPE_CHECKING:
     from .world import CowtasticWorld
@@ -33,9 +33,11 @@ def set_location_rules(world: CowtasticWorld) -> None:
     # checks stay reachable when few candy exist.
     total_candy = REQUIRED_CANDY + world.options.extra_candy.value
     bm_display = display_name("BreastMilk")
+    censored = bool(world.options.censorship_mode.value)
     for c in range(checks):
         required_candy = min((c + 1) * 2, total_candy)
-        loc = world.get_location(location_name(bm_display, c + 1))
+        name = censored_serve_name(c + 1) if censored else location_name(bm_display, c + 1)
+        loc = world.get_location(name)
         loc.access_rule = lambda state, n=required_candy: \
             state.has("Stretchy Candy", world.player, n)
 
