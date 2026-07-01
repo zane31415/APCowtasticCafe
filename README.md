@@ -1,4 +1,4 @@
-# Cowtastic Open Café
+# AP Cowtastic Open Café
 ![Cowtastic Cafe Ingame](https://github.com/Noa3/Cowtastic-Open-Cafe/assets/8495084/c52ea20b-32e8-42b5-a7cb-01c11261cd91)
 
 ‼️ WARNING: This project includes NSFW content (suggestive themes, audio dialogue).
@@ -21,9 +21,9 @@
 
 ## About the Project
 
-Cowtastic Open Café is a mod-friendly Unity adaptation of the NSFW barista simulation game originally featuring lewd and playful cow-themed content. Mix drinks, upgrade your café, serve strange customers — with suggestive themes, character voices, and audio feedback.
+AP Cowtastic Café is an Archipelago implementation of the Unity adaptation of the NSFW barista simulation game originally featuring lewd and playful cow-themed content. Mix drinks, upgrade your café, serve strange customers — with suggestive themes, character voices, and audio feedback.
 
-This project is unofficial and fan-maintained for learning, modding, and development purposes.
+This project is unofficial and fan-maintained.
 
 ---
 
@@ -37,26 +37,19 @@ This project is unofficial and fan-maintained for learning, modding, and develop
 
 ## Requirements
 
-- Unity (recommended version: listed in `ProjectSettings`)
-- Git (or download ZIP)
-- Target platforms: Windows / macOS / Linux / WebGL  
-  (Android & Mobile: untested, experimental)
+- Target platforms: Windows (may retarget in later builds)
 
 ---
 
 ## Installation
 
-1. Clone the repo:  
-   `git clone https://github.com/Noa3/Cowtastic-Open-Cafe.git`
-
-2. Open the folder in Unity Editor.
-
-3. Load the sample scene:  
-   `Assets/Scenes/Main.unity` or `Assets/Scenes/SampleScene.unity`
-
-4. Run in Play Mode and explore the basic gameplay systems.
-
-More instructions: see `How to Add Customers.txt`
+1. View the current releases. On the most recent release, download the .apworld and .zip.
+2. Double click the apworld to install it into Archipelago.
+3. Open your Archipelago installation and click "generate templates" to generate the default yaml.
+4. Move the yaml into /Players and generate
+5. Unzip Cowtastic_Cafe.zip to wherever you'd like it to be.
+6. Click on Cowtastic Cafe.exe. You should be presented with a Unity connection screen.
+7. Fill out the port and slot and connect.
 
 ---
 
@@ -64,26 +57,6 @@ More instructions: see `How to Add Customers.txt`
 
 - The current voice sample was generously provided by **Lewdheart**.  
   All rights to this specific voice belong to the original creator.
-
-- You can replace or add your own voice samples by following the file structure in  
-  `Assets/Audio/Scripts/ExampleVoice.hs`.
-
-- Please **do not redistribute commercial voice clips** unless you have permission.
-
----
-
-## Contributing
-
-Contributions are welcome!  
-Here’s how to participate:
-
-- Fork this repository  
-- Create a new branch: `feature/<description>`  
-- Make your changes and test in Unity  
-- Submit a pull request with clear explanation and, if possible, preview (screenshot, audio)
-
-Example PR title:  
-`feature/add-cow-mode` or `fix/dialogue-timing-bug`
 
 ---
 
@@ -101,24 +74,13 @@ Example PR title:
 
 ## Contact
 
-If you share this project publicly (e.g., livestream, YouTube, blog), a small mention is appreciated!  
-📧 Contact: noa3@gmx.net
+Support can be found at the AP After Dark Discord server, in the Cowtastic Cafe channel.
+
+Base Open Cowtastic Cafe is available thanks to noa3@gmx.net
 
 ---
 
-## License Options
-
-You have two paths for licensing depending on your goals:
-
-### 🔓 Option A – Fully Open Source (Allow Commercial Use)
-
-- Use: **GPLv3** or **GPLv3-or-later**
-- Commercial use: ✅ Allowed
-- Modifications must stay open-source
-- You **cannot** restrict resale
-
-### 🔒 Option B – Non-Commercial (Recommended if you want to protect content)
-
+## License
 Split license:
 
 | Component       | License           | Commercial Use | ShareAlike |
@@ -130,19 +92,3 @@ This means:
 - Your code is open and usable by others
 - Media/voices can be remixed or reused, **but not sold**
 - Derivative projects must use the same license for media
-
-> ❗ Note: **Creative Commons licenses are not OSI-certified open source**  
-> They are commonly used for assets (sounds, art, models) in games.
-
----
-
-## Final Recommendation
-
-- If your goal is open collaboration and freedom: **GPLv3**  
-- If your goal is protection from resale/abuse: **MIT + CC BY-NC-SA**
-
-Let us know in [Issues](https://github.com/Noa3/Cowtastic-Open-Cafe/issues) if you need help adjusting the license structure or README badges.
-
----
-
-Thanks for checking out Cowtastic Open Café! 🐄☕
